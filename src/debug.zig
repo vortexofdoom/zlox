@@ -15,15 +15,32 @@ pub fn disassembleChunk(chunk: *Chunk, name: []const u8) void {
 
 pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
     print("{d:0>4} ", .{offset});
+    const line = chunk.getLine(offset);
+    if (offset > 0 and line == chunk.getLine(offset - 1)) {
+        print("   | ", .{});   
+    } else {
+        print("{d: >4} ", .{line});
+    }
     const instruction = @as(OpCode, @enumFromInt(chunk.code.items[offset]));
     switch (instruction) {
-        .constant => return 0,
-        .negate => return 0,
-        .ret => return simpleInstruction("OP_RETURN\n", offset),
+        .constant => return constantInstruction("OP_CONSTANT", chunk, offset),
+        .negate =>  return simpleInstruction("OP_NEGATE", offset),
+        .ret => return simpleInstruction("OP_RETURN", offset),
+        _ => {
+            print("Unknown opcode {d}\n", .{@intFromEnum(instruction)});
+            return offset + 1;
+        }
     }
 }
 
+fn constantInstruction(name: []const u8, chunk: *Chunk, offset: usize) usize {
+    const constant = chunk.code.items[offset + 1];
+    const value = chunk.constants.items[@as(usize, constant)];
+    print("{s: <16} {d:>4} '{d}'\n", .{name, constant, value});
+    return offset + 2;
+}
+
 fn simpleInstruction(name: []const u8, offset: usize) usize {
-    print("{s}", .{name});
-    return offset + 1;    
+    print("{s}\n", .{name});
+    return offset + 1;
 }
