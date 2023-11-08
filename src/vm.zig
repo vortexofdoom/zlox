@@ -7,7 +7,7 @@ const value = @import("value.zig");
 const Value = value.Value;
 const printValue = value.printValue;
 const print = std.debug.print;
-
+const compile = @import("compiler.zig").compile;
 
 const DEBUG_TRACE: bool = true;
 
@@ -39,31 +39,28 @@ pub fn init(allocator: Allocator) !*Self {
     return &Vm;
 }
 
-pub fn deinit(self: *Self) void {
-    _ = self;
+pub fn deinit() void {
     
 }
 
-pub fn interpret(self: *Self, chunk: *Chunk) InterpretError!void {
-    self.chunk = chunk;
-    self.ip = chunk.code.items.ptr;
-    return self.run();
+pub fn interpret(source: []const u8) InterpretError!void {
+    return compile(source);
 }
 
-fn readByte(self: *Self) u8 {
-    const byte = self.ip[0];
-    self.ip += 1;
+inline fn readByte() u8 {
+    const byte = Vm.ip[0];
+    Vm.ip += 1;
     return byte;
 }
 
-fn push(self: *Self, val: Value) void {
-    self.sp[0] = val;
-    self.sp += 1;
+inline fn push(val: Value) void {
+    Vm.sp[0] = val;
+    Vm.sp += 1;
 }
 
-fn pop(self: *Self) Value {
-    self.sp -= 1;
-    return self.sp[0];
+inline fn pop() Value {
+    Vm.sp -= 1;
+    return Vm.sp[0];
 }
 
 fn readConstant(self: *Self) Value {
@@ -83,34 +80,34 @@ inline fn binaryOp(self: *Self, comptime op: Op) !void {
     });
 }
 
-pub fn run(self: *Self) InterpretError!void {
+pub fn run() InterpretError!void {
     var offset: usize = 0;
     while (true) {
         if (comptime DEBUG_TRACE) {
             std.debug.print("          ", .{});
-            var slot: [*]Value = &self.stack;
+            var slot: [*]Value = &Vm.stack;
             //for (self.stack[0..@intFromPtr(self.sp) - @intFromPtr(&self.stack)]) |slot| {
-            while (@intFromPtr(slot) < @intFromPtr(self.sp)) : (slot += 1) {
+            while (@intFromPtr(slot) < @intFromPtr(Vm.sp)) : (slot += 1) {
                 std.debug.print("[ {d} ]", .{slot[0]});
             }
             std.debug.print("\n", .{}); 
-            offset = @import("debug.zig").disassembleInstruction(self.chunk, offset);
+            offset = @import("debug.zig").disassembleInstruction(Vm.chunk, offset);
         }
 
-        const byte = @as(Op, @enumFromInt(self.readByte()));
+        const byte = @as(Op, @enumFromInt(readByte()));
         switch (byte) {
             .constant => {
-                const constant = self.readConstant();
-                self.push(constant);
+                const constant = readConstant();
+                push(constant);
                 continue;
             },
-            .add => try self.binaryOp(.add),
-            .sub => try self.binaryOp(.sub),
-            .mul => try self.binaryOp(.mul),
-            .div => try self.binaryOp(.div),
-            .negate => self.push(-self.pop()),
+            .add => try binaryOp(.add),
+            .sub => try binaryOp(.sub),
+            .mul => try binaryOp(.mul),
+            .div => try binaryOp(.div),
+            .negate => push(-pop()),
             .ret => {
-                printValue(self.pop());
+                printValue(pop());
                 std.debug.print("\n", .{});
                 return;
             },

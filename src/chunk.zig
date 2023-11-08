@@ -4,13 +4,13 @@ const Error = @import("error.zig").Error;
 const ArrayList = std.ArrayList;
 
 pub const Op = enum(u8) {
-    ret,
+    constant,
     add,
     sub,
     mul,
     div,
     negate,
-    constant,
+    ret,
     _,
 };
 
