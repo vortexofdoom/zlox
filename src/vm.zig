@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const chunk_ = @import("chunk.zig");
-const OpCode = chunk_.OpCode;
+const Op = chunk_.Op;
 const Chunk = chunk_.Chunk;
 const value = @import("value.zig");
 const Value = value.Value;
@@ -70,6 +70,19 @@ fn readConstant(self: *Self) Value {
     return self.chunk.constants.items[self.readByte()];
 }
 
+inline fn binaryOp(self: *Self, comptime op: Op) !void {
+    const b = self.pop();
+    const a = self.pop();
+
+    self.push(switch (op) {
+        .add => a + b,
+        .sub => a - b,
+        .mul => a * b,
+        .div => a / b,
+        else => unreachable,
+    });
+}
+
 pub fn run(self: *Self) InterpretError!void {
     var offset: usize = 0;
     while (true) {
@@ -84,13 +97,17 @@ pub fn run(self: *Self) InterpretError!void {
             offset = @import("debug.zig").disassembleInstruction(self.chunk, offset);
         }
 
-        const byte = @as(OpCode, @enumFromInt(self.readByte()));
+        const byte = @as(Op, @enumFromInt(self.readByte()));
         switch (byte) {
             .constant => {
                 const constant = self.readConstant();
                 self.push(constant);
                 continue;
             },
+            .add => try self.binaryOp(.add),
+            .sub => try self.binaryOp(.sub),
+            .mul => try self.binaryOp(.mul),
+            .div => try self.binaryOp(.div),
             .negate => self.push(-self.pop()),
             .ret => {
                 printValue(self.pop());

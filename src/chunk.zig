@@ -3,8 +3,12 @@ const Value = @import("value.zig").Value;
 const Error = @import("error.zig").Error;
 const ArrayList = std.ArrayList;
 
-pub const OpCode = enum(u8) {
+pub const Op = enum(u8) {
     ret,
+    add,
+    sub,
+    mul,
+    div,
     negate,
     constant,
     _,
