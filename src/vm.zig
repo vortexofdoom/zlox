@@ -44,7 +44,14 @@ pub fn deinit() void {
 }
 
 pub fn interpret(source: []const u8) InterpretError!void {
-    return compile(source);
+    var chunk = try Chunk.init(Vm.allocator);
+    defer chunk.deinit();
+    try compile(source);
+
+    Vm.chunk = &chunk;
+    Vm.ip = Vm.chunk.code.items.ptr;
+
+    //try run();
 }
 
 inline fn readByte() u8 {
@@ -63,19 +70,19 @@ inline fn pop() Value {
     return Vm.sp[0];
 }
 
-fn readConstant(self: *Self) Value {
-    return self.chunk.constants.items[self.readByte()];
+fn readConstant() Value {
+    return Vm.chunk.constants.items[readByte()];
 }
 
-inline fn binaryOp(self: *Self, comptime op: Op) !void {
-    const b = self.pop();
-    const a = self.pop();
+inline fn binaryOp(comptime op: Op) !void {
+    const b = pop();
+    const a = pop();
 
-    self.push(switch (op) {
-        .add => a + b,
-        .sub => a - b,
-        .mul => a * b,
-        .div => a / b,
+    push(switch (op) {
+        .ADD => a + b,
+        .SUBTRACT => a - b,
+        .MULTIPLY => a * b,
+        .DIVIDE => a / b,
         else => unreachable,
     });
 }
@@ -96,17 +103,16 @@ pub fn run() InterpretError!void {
 
         const byte = @as(Op, @enumFromInt(readByte()));
         switch (byte) {
-            .constant => {
+            .CONSTANT => {
                 const constant = readConstant();
                 push(constant);
-                continue;
             },
-            .add => try binaryOp(.add),
-            .sub => try binaryOp(.sub),
-            .mul => try binaryOp(.mul),
-            .div => try binaryOp(.div),
-            .negate => push(-pop()),
-            .ret => {
+            .ADD => try binaryOp(.ADD),
+            .SUBTRACT => try binaryOp(.SUBTRACT),
+            .MULTIPLY => try binaryOp(.MULTIPLY),
+            .DIVIDE => try binaryOp(.DIVIDE),
+            .NEGATE => push(-pop()),
+            .RETURN => {
                 printValue(pop());
                 std.debug.print("\n", .{});
                 return;

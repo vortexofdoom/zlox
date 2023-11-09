@@ -5,7 +5,7 @@ start: [*]const u8,
 current: [*]const u8,
 line: usize,
 
-const TokenType = enum {
+pub const TokenType = enum {
     LEFT_PAREN,
     RIGHT_PAREN,
     LEFT_BRACE,
@@ -49,6 +49,7 @@ const TokenType = enum {
     WHILE,
 
     ERROR,
+    EOF,
 };
 
 pub const Token = struct {
@@ -205,12 +206,16 @@ fn number() Token {
     return makeToken(TokenType.NUMBER);
 }
 
-pub fn scanToken() !?Token {
+pub fn scanToken() !Token {
     skipWhitespace();
 
     //std.debug.print("start: {x}, current: {x}", .{@intFromPtr(scanner.start), @intFromPtr(scanner.current)});
     scanner.start = scanner.current;
-    if (isAtEnd()) return null;
+    if (isAtEnd()) return Token {
+        .type = .EOF,
+        .str = "",
+        .line = scanner.line,
+    };
 
     const c: u8 = advance();
 

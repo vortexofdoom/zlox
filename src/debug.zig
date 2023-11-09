@@ -23,13 +23,13 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
     }
     const instruction = @as(Op, @enumFromInt(chunk.code.items[offset]));
     switch (instruction) {
-        .constant => return constantInstruction("OP_CONSTANT", chunk, offset),
-        .add => return simpleInstruction("OP_ADD", offset),
-        .sub => return simpleInstruction("OP_SUBTRACT", offset),
-        .mul => return simpleInstruction("OP_MULTIPLY", offset),
-        .div => return simpleInstruction("OP_DIVIDE", offset),
-        .negate => return simpleInstruction("OP_NEGATE", offset),
-        .ret => return simpleInstruction("OP_RETURN", offset),
+        .CONSTANT => return constantInstruction("OP_CONSTANT", chunk, offset),
+        .ADD => return simpleInstruction("OP_ADD", offset),
+        .SUBTRACT => return simpleInstruction("OP_SUBTRACT", offset),
+        .MULTIPLY => return simpleInstruction("OP_MULTIPLY", offset),
+        .DIVIDE => return simpleInstruction("OP_DIVIDE", offset),
+        .NEGATE => return simpleInstruction("OP_NEGATE", offset),
+        .RETURN => return simpleInstruction("OP_RETURN", offset),
         _ => {
             print("Unknown opcode {d}\n", .{@intFromEnum(instruction)});
             return offset + 1;
