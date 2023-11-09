@@ -118,10 +118,12 @@ pub fn run() InterpretError!void {
             .NIL => push(Value{ .nil = {} }),
             .TRUE => push(Value{ .bool = true }),
             .FALSE => push(Value{ .bool = false }),
+            .EQUAL => push(Value{.bool = pop().equals(pop())}),
             .ADD => try binaryOp(.ADD),
             .SUBTRACT => try binaryOp(.SUBTRACT),
             .MULTIPLY => try binaryOp(.MULTIPLY),
             .DIVIDE => try binaryOp(.DIVIDE),
+            .NOT => push(Value{ .bool = pop().isFalsey() }),
             .NEGATE => {
                 switch (peek(0)) {
                     .number => push(Value{ .number = -(pop().number) }),

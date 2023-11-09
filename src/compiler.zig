@@ -63,14 +63,14 @@ const rules = [_]ParseRule{
     makeRule(null, null, .NONE), // SEMICOLON
     makeRule(null, binary, .FACTOR), // SLASH
     makeRule(null, binary, .FACTOR), // STAR
-    makeRule(null, null, .NONE), // BANG
-    makeRule(null, null, .NONE), // BANG_EQUAL
+    makeRule(unary, null, .NONE), // BANG
+    makeRule(null, binary, .COMPARISON), // BANG_EQUAL
     makeRule(null, null, .NONE), // EQUAL
-    makeRule(null, null, .NONE), // EQUAL_EQUAL
-    makeRule(null, null, .NONE), // GREATER
-    makeRule(null, null, .NONE), // GREATER_EQUAL
-    makeRule(null, null, .NONE), // LESS
-    makeRule(null, null, .NONE), // LESS_EQUAL
+    makeRule(null, binary, .COMPARISON), // EQUAL_EQUAL
+    makeRule(null, binary, .COMPARISON), // GREATER
+    makeRule(null, binary, .COMPARISON), // GREATER_EQUAL
+    makeRule(null, binary, .COMPARISON), // LESS
+    makeRule(null, binary, .COMPARISON), // LESS_EQUAL
     makeRule(null, null, .NONE), // IDENTIFIER
     makeRule(null, null, .NONE), // STRING
     makeRule(number, null, .NONE), // NUMBER
@@ -225,6 +225,7 @@ fn unary() !void {
 
     switch (op_type) {
         .MINUS => try emitOp(.NEGATE),
+        .BANG => try emitOp(.NOT),
         else => unreachable,
     }
 }
@@ -239,6 +240,12 @@ fn binary() !void {
     try parsePrecedence(nextPrecedence(rule.precedence));
 
     switch (operator_type) {
+        .BANG_EQUAL => try emitBytes(.EQUAL, @intFromEnum(Op.NOT)),
+        .EQUAL_EQUAL => try emitOp(.EQUAL),
+        .GREATER => try emitOp(.GREATER),
+        .GREATER_EQUAL => try emitBytes(.LESS, @intFromEnum(Op.NOT)),
+        .LESS => try emitOp(.LESS),
+        .LESS_EQUAL => try emitBytes(.GREATER, @intFromEnum(Op.NOT)),
         .PLUS => try emitOp(.ADD),
         .MINUS => try emitOp(.SUBTRACT),
         .STAR => try emitOp(.MULTIPLY),
