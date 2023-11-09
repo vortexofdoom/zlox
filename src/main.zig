@@ -16,7 +16,6 @@ fn repl() !void {
         if (input.len == 0) break;
         try stdout.print("> ", .{});
     }
-    
 }
 
 fn readFile(path: []const u8, alloc: std.mem.Allocator) ![:0]u8 {
@@ -26,7 +25,7 @@ fn readFile(path: []const u8, alloc: std.mem.Allocator) ![:0]u8 {
     };
 
     defer file.close();
-    
+
     return file.readToEndAllocOptions(alloc, 100_000_000, null, @alignOf(u8), 0) catch {
         std.log.err("Could not read file \"{s}\".\n", .{path});
         std.os.exit(74);
@@ -52,13 +51,13 @@ pub fn main() !void {
     var alloc = gen_purpose.allocator();
 
     defer _ = gen_purpose.deinit();
-    
+
     _ = try Vm.init(alloc);
     defer Vm.deinit();
 
     var args = std.process.args();
     _ = args.skip();
-    
+
     if (args.next()) |path| {
         try runFile(path, alloc);
     } else {

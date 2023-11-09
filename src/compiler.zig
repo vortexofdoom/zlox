@@ -52,46 +52,46 @@ inline fn makeRule(comptime prefix: ?ParseFn, comptime infix: ?ParseFn, comptime
 }
 
 const rules = [_]ParseRule{
-    makeRule(grouping,  null, .NONE),    // LEFT_PAREN
-    makeRule(null,      null, .NONE),    // RIGHT_PAREN
-    makeRule(null, null, .NONE),         // LEFT_BRACE
-    makeRule(null, null, .NONE),         // RIGHT_BRACE
-    makeRule(null, null, .NONE),         // COMMA
-    makeRule(null, null, .NONE),// DOT
-    makeRule(unary, binary, .TERM),// MINUS
-    makeRule(null, binary, .TERM),// PLUS
-    makeRule(null, null, .NONE),// SEMICOLON
-    makeRule(null, binary, .FACTOR),// SLASH
-    makeRule(null, binary, .FACTOR),// STAR
-    makeRule(null, null, .NONE),// BANG
-    makeRule(null, null, .NONE),// BANG_EQUAL
-    makeRule(null, null, .NONE),// EQUAL
-    makeRule(null, null, .NONE),// EQUAL_EQUAL
-    makeRule(null, null, .NONE),// GREATER
-    makeRule(null, null, .NONE),// GREATER_EQUAL
-    makeRule(null, null, .NONE),// LESS
-    makeRule(null, null, .NONE),// LESS_EQUAL
-    makeRule(null, null, .NONE),// IDENTIFIER
-    makeRule(null, null, .NONE),// STRING
-    makeRule(number, null, .NONE),// NUMBER
-    makeRule(null, null, .NONE),// AND
-    makeRule(null, null, .NONE),// CLASS
-    makeRule(null, null, .NONE),// ELSE
-    makeRule(literal, null, .NONE),// FALSE
-    makeRule(null, null, .NONE),// FOR
-    makeRule(null, null, .NONE),// FUN
-    makeRule(null, null, .NONE),// IF
-    makeRule(literal, null, .NONE),// NIL
-    makeRule(null, null, .NONE),// OR
-    makeRule(null, null, .NONE),// PRINT
-    makeRule(null, null, .NONE),// RETURN
-    makeRule(null, null, .NONE),// SUPER
-    makeRule(null, null, .NONE),// THIS
-    makeRule(literal, null, .NONE),// TRUE
-    makeRule(null, null, .NONE),// VAR
-    makeRule(null, null, .NONE),// WHILE
-    makeRule(null, null, .NONE),// ERROR
-    makeRule(null, null, .NONE),     // EOF
+    makeRule(grouping, null, .NONE), // LEFT_PAREN
+    makeRule(null, null, .NONE), // RIGHT_PAREN
+    makeRule(null, null, .NONE), // LEFT_BRACE
+    makeRule(null, null, .NONE), // RIGHT_BRACE
+    makeRule(null, null, .NONE), // COMMA
+    makeRule(null, null, .NONE), // DOT
+    makeRule(unary, binary, .TERM), // MINUS
+    makeRule(null, binary, .TERM), // PLUS
+    makeRule(null, null, .NONE), // SEMICOLON
+    makeRule(null, binary, .FACTOR), // SLASH
+    makeRule(null, binary, .FACTOR), // STAR
+    makeRule(null, null, .NONE), // BANG
+    makeRule(null, null, .NONE), // BANG_EQUAL
+    makeRule(null, null, .NONE), // EQUAL
+    makeRule(null, null, .NONE), // EQUAL_EQUAL
+    makeRule(null, null, .NONE), // GREATER
+    makeRule(null, null, .NONE), // GREATER_EQUAL
+    makeRule(null, null, .NONE), // LESS
+    makeRule(null, null, .NONE), // LESS_EQUAL
+    makeRule(null, null, .NONE), // IDENTIFIER
+    makeRule(null, null, .NONE), // STRING
+    makeRule(number, null, .NONE), // NUMBER
+    makeRule(null, null, .NONE), // AND
+    makeRule(null, null, .NONE), // CLASS
+    makeRule(null, null, .NONE), // ELSE
+    makeRule(literal, null, .NONE), // FALSE
+    makeRule(null, null, .NONE), // FOR
+    makeRule(null, null, .NONE), // FUN
+    makeRule(null, null, .NONE), // IF
+    makeRule(literal, null, .NONE), // NIL
+    makeRule(null, null, .NONE), // OR
+    makeRule(null, null, .NONE), // PRINT
+    makeRule(null, null, .NONE), // RETURN
+    makeRule(null, null, .NONE), // SUPER
+    makeRule(null, null, .NONE), // THIS
+    makeRule(literal, null, .NONE), // TRUE
+    makeRule(null, null, .NONE), // VAR
+    makeRule(null, null, .NONE), // WHILE
+    makeRule(null, null, .NONE), // ERROR
+    makeRule(null, null, .NONE), // EOF
 };
 
 var curr_chunk: *Chunk = undefined;
@@ -190,10 +190,6 @@ fn advance() !void {
 }
 
 fn parsePrecedence(precedence: Precendence) !void {
-    switch (parser.previous.type) {
-        .TRUE => std.debug.print("hi\n", .{}),
-        else => {},
-    }
     try advance();
     if (getRule(parser.previous.type).prefix) |prefix_rule| {
         try prefix_rule();
@@ -263,9 +259,9 @@ pub fn compile(source: []const u8, chunk: *Chunk) !void {
     };
 
     expression() catch {};
-    //std.debug.print("{any}\n", .{parser.current});
+    consume(.EOF, "Expect end of expression.");
+
     endCompiler() catch {
         return @import("vm.zig").InterpretError.CompileError;
     };
-    consume(.EOF, "Expect end of expression.");
 }

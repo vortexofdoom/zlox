@@ -77,7 +77,7 @@ inline fn isAtEnd() bool {
 fn makeToken(ty: TokenType) Token {
     return .{
         .type = ty,
-        .str = scanner.start[0..@intFromPtr(scanner.current) - @intFromPtr(scanner.start)],
+        .str = scanner.start[0 .. @intFromPtr(scanner.current) - @intFromPtr(scanner.start)],
         .line = scanner.line,
     };
 }
@@ -97,7 +97,7 @@ fn match(expected: u8) bool {
 fn skipWhitespace() void {
     while (!isAtEnd()) : (scanner.current += 1) {
         switch (peek()) {
-             ' ', '\t', '\r', ascii.control_code.vt, ascii.control_code.ff => continue,
+            ' ', '\t', '\r', ascii.control_code.vt, ascii.control_code.ff => continue,
             '\n' => scanner.line += 1,
             '/' => {
                 if (scanner.current[1] == '/') {
@@ -188,8 +188,8 @@ inline fn currLen() usize {
 
 fn checkKeyword(start: usize, rest: []const u8, ty: TokenType) Token {
     return if (current()[start..].len == rest.len and std.mem.order(u8, current()[start..], rest) == .eq)
-        makeToken(ty) 
-    else 
+        makeToken(ty)
+    else
         makeToken(.IDENTIFIER);
 }
 
@@ -210,16 +210,16 @@ fn number() Token {
 pub fn scanToken() !Token {
     skipWhitespace();
 
-    //std.debug.print("start: {x}, current: {x}", .{@intFromPtr(scanner.start), @intFromPtr(scanner.current)});
     scanner.start = scanner.current;
-    if (isAtEnd()) return Token {
+
+    if (isAtEnd()) return Token{
         .type = .EOF,
         .str = "",
         .line = scanner.line,
     };
 
     const c: u8 = advance();
-    
+
     if (isAlpha(c)) return identifier();
     if (ascii.isDigit(c)) return number();
 

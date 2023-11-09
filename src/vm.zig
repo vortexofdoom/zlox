@@ -13,7 +13,7 @@ const DEBUG_TRACE: bool = true;
 
 const STACK_MAX = 256;
 
-pub const InterpretError = error {
+pub const InterpretError = error{
     CompileError,
     RuntimeError,
 };
@@ -29,7 +29,7 @@ pub var Vm: Self = .{
     .allocator = undefined,
     .chunk = undefined,
     .ip = undefined,
-    .stack = [_]Value{Value{.nil = {}}} ** STACK_MAX,
+    .stack = [_]Value{Value{ .nil = {} }} ** STACK_MAX,
     .sp = undefined,
 };
 
@@ -39,15 +39,12 @@ pub fn init(allocator: Allocator) !*Self {
     return &Vm;
 }
 
-pub fn deinit() void {
-    
-}
+pub fn deinit() void {}
 
 pub fn interpret(source: []const u8) InterpretError!void {
     var chunk = try Chunk.init(Vm.allocator);
     defer chunk.deinit();
     try compile(source, &chunk);
-
     Vm.chunk = &chunk;
     Vm.ip = Vm.chunk.code.items.ptr;
 
@@ -84,10 +81,10 @@ inline fn binaryOp(comptime op: Op) !void {
         else => return InterpretError.RuntimeError,
     };
     push(switch (op) {
-        .ADD => Value{.number = l + r},
-        .SUBTRACT => Value{.number = l - r},
-        .MULTIPLY => Value{.number = l * r},
-        .DIVIDE => Value{.number = l / r},
+        .ADD => Value{ .number = l + r },
+        .SUBTRACT => Value{ .number = l - r },
+        .MULTIPLY => Value{ .number = l * r },
+        .DIVIDE => Value{ .number = l / r },
         else => unreachable,
     });
 }
@@ -104,11 +101,11 @@ pub fn run() InterpretError!void {
             var slot: [*]Value = &Vm.stack;
             //for (self.stack[0..@intFromPtr(self.sp) - @intFromPtr(&self.stack)]) |slot| {
             while (@intFromPtr(slot) < @intFromPtr(Vm.sp)) : (slot += 1) {
-                std.debug.print("[ ", .{}); 
+                std.debug.print("[ ", .{});
                 printValue(slot[0]);
                 std.debug.print(" ]", .{});
             }
-            std.debug.print("\n", .{}); 
+            std.debug.print("\n", .{});
             offset = @import("debug.zig").disassembleInstruction(Vm.chunk, offset);
         }
 
@@ -118,16 +115,16 @@ pub fn run() InterpretError!void {
                 const constant = readConstant();
                 push(constant);
             },
-            .NIL => push(Value{.nil = {}}),
-            .TRUE => push(Value{.bool = true}),
-            .FALSE => push(Value{.bool = false}),
+            .NIL => push(Value{ .nil = {} }),
+            .TRUE => push(Value{ .bool = true }),
+            .FALSE => push(Value{ .bool = false }),
             .ADD => try binaryOp(.ADD),
             .SUBTRACT => try binaryOp(.SUBTRACT),
             .MULTIPLY => try binaryOp(.MULTIPLY),
             .DIVIDE => try binaryOp(.DIVIDE),
             .NEGATE => {
                 switch (peek(0)) {
-                    .number => push(Value{.number = -(pop().number)}),
+                    .number => push(Value{ .number = -(pop().number) }),
                     else => return InterpretError.RuntimeError,
                 }
             },
