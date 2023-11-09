@@ -71,7 +71,7 @@ pub fn init(source: []const u8) void {
 }
 
 inline fn isAtEnd() bool {
-    return scanner.current[0] == 0;
+    return scanner.current[0] == 0 or scanner.current[0] == 170;
 }
 
 fn makeToken(ty: TokenType) Token {
@@ -95,17 +95,18 @@ fn match(expected: u8) bool {
 }
 
 fn skipWhitespace() void {
-    while (true) : (scanner.current += 1) {
+    while (!isAtEnd()) : (scanner.current += 1) {
         switch (peek()) {
+             ' ', '\t', '\r', ascii.control_code.vt, ascii.control_code.ff => continue,
+            '\n' => scanner.line += 1,
             '/' => {
                 if (scanner.current[1] == '/') {
                     while (peek() != '\n' and !isAtEnd()) {
                         scanner.current += 1;
                     }
+                    scanner.line += 1;
                 } else return;
             },
-            ' ', '\t' => continue,
-            '\n' => scanner.line += 1,
             else => return,
         }
     }
@@ -166,7 +167,7 @@ fn identifier() Token {
             return if (current().len > 1) {
                 return switch (scanner.start[1]) {
                     'h' => checkKeyword(2, "is", .THIS),
-                    'u' => checkKeyword(2, "ue", .TRUE),
+                    'r' => checkKeyword(2, "ue", .TRUE),
                     else => makeToken(.IDENTIFIER),
                 };
             } else makeToken(.IDENTIFIER);
@@ -186,7 +187,7 @@ inline fn currLen() usize {
 }
 
 fn checkKeyword(start: usize, rest: []const u8, ty: TokenType) Token {
-    return if (current().len == rest.len and std.mem.order(u8, current()[start..], rest) == .eq)
+    return if (current()[start..].len == rest.len and std.mem.order(u8, current()[start..], rest) == .eq)
         makeToken(ty) 
     else 
         makeToken(.IDENTIFIER);
@@ -218,31 +219,31 @@ pub fn scanToken() !Token {
     };
 
     const c: u8 = advance();
-
+    
     if (isAlpha(c)) return identifier();
     if (ascii.isDigit(c)) return number();
 
-    switch (c) {
-        '(' => return makeToken(TokenType.LEFT_PAREN),
-        ')' => return makeToken(TokenType.RIGHT_PAREN),
-        '{' => return makeToken(TokenType.LEFT_BRACE),
-        '}' => return makeToken(TokenType.RIGHT_BRACE),
-        ';' => return makeToken(TokenType.SEMICOLON),
-        ',' => return makeToken(TokenType.COMMA),
-        '.' => return makeToken(TokenType.DOT),
-        '-' => return makeToken(TokenType.MINUS),
-        '+' => return makeToken(TokenType.PLUS),
-        '/' => return makeToken(TokenType.SLASH),
-        '*' => return makeToken(TokenType.STAR),
-        '!' => return makeToken(if (match('=')) TokenType.BANG_EQUAL else TokenType.BANG),
-        '=' => return makeToken(if (match('=')) TokenType.EQUAL_EQUAL else TokenType.EQUAL),
-        '<' => return makeToken(if (match('=')) TokenType.LESS_EQUAL else TokenType.LESS),
-        '>' => return makeToken(if (match('=')) TokenType.GREATER_EQUAL else TokenType.GREATER),
-        '"' => return try string(),
-        else => return .{
+    return switch (c) {
+        '(' => makeToken(TokenType.LEFT_PAREN),
+        ')' => makeToken(TokenType.RIGHT_PAREN),
+        '{' => makeToken(TokenType.LEFT_BRACE),
+        '}' => makeToken(TokenType.RIGHT_BRACE),
+        ';' => makeToken(TokenType.SEMICOLON),
+        ',' => makeToken(TokenType.COMMA),
+        '.' => makeToken(TokenType.DOT),
+        '-' => makeToken(TokenType.MINUS),
+        '+' => makeToken(TokenType.PLUS),
+        '/' => makeToken(TokenType.SLASH),
+        '*' => makeToken(TokenType.STAR),
+        '!' => makeToken(if (match('=')) TokenType.BANG_EQUAL else TokenType.BANG),
+        '=' => makeToken(if (match('=')) TokenType.EQUAL_EQUAL else TokenType.EQUAL),
+        '<' => makeToken(if (match('=')) TokenType.LESS_EQUAL else TokenType.LESS),
+        '>' => makeToken(if (match('=')) TokenType.GREATER_EQUAL else TokenType.GREATER),
+        '"' => try string(),
+        else => .{
             .type = .ERROR,
             .str = "Unexpected character.",
             .line = scanner.line,
         },
-    }
+    };
 }

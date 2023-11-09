@@ -29,7 +29,7 @@ pub var Vm: Self = .{
     .allocator = undefined,
     .chunk = undefined,
     .ip = undefined,
-    .stack = [1]Value{ 0.0 } ** STACK_MAX,
+    .stack = [_]Value{Value{.nil = {}}} ** STACK_MAX,
     .sp = undefined,
 };
 
@@ -46,12 +46,12 @@ pub fn deinit() void {
 pub fn interpret(source: []const u8) InterpretError!void {
     var chunk = try Chunk.init(Vm.allocator);
     defer chunk.deinit();
-    try compile(source);
+    try compile(source, &chunk);
 
     Vm.chunk = &chunk;
     Vm.ip = Vm.chunk.code.items.ptr;
 
-    //try run();
+    try run();
 }
 
 inline fn readByte() u8 {
@@ -75,16 +75,25 @@ fn readConstant() Value {
 }
 
 inline fn binaryOp(comptime op: Op) !void {
-    const b = pop();
-    const a = pop();
-
+    const r = switch (pop()) {
+        .number => |n| n,
+        else => return InterpretError.RuntimeError,
+    };
+    const l = switch (pop()) {
+        .number => |n| n,
+        else => return InterpretError.RuntimeError,
+    };
     push(switch (op) {
-        .ADD => a + b,
-        .SUBTRACT => a - b,
-        .MULTIPLY => a * b,
-        .DIVIDE => a / b,
+        .ADD => Value{.number = l + r},
+        .SUBTRACT => Value{.number = l - r},
+        .MULTIPLY => Value{.number = l * r},
+        .DIVIDE => Value{.number = l / r},
         else => unreachable,
     });
+}
+
+inline fn peek(distance: isize) Value {
+    return (Vm.sp + distance - 1)[0];
 }
 
 pub fn run() InterpretError!void {
@@ -95,7 +104,9 @@ pub fn run() InterpretError!void {
             var slot: [*]Value = &Vm.stack;
             //for (self.stack[0..@intFromPtr(self.sp) - @intFromPtr(&self.stack)]) |slot| {
             while (@intFromPtr(slot) < @intFromPtr(Vm.sp)) : (slot += 1) {
-                std.debug.print("[ {d} ]", .{slot[0]});
+                std.debug.print("[ ", .{}); 
+                printValue(slot[0]);
+                std.debug.print(" ]", .{});
             }
             std.debug.print("\n", .{}); 
             offset = @import("debug.zig").disassembleInstruction(Vm.chunk, offset);
@@ -107,11 +118,19 @@ pub fn run() InterpretError!void {
                 const constant = readConstant();
                 push(constant);
             },
+            .NIL => push(Value{.nil = {}}),
+            .TRUE => push(Value{.bool = true}),
+            .FALSE => push(Value{.bool = false}),
             .ADD => try binaryOp(.ADD),
             .SUBTRACT => try binaryOp(.SUBTRACT),
             .MULTIPLY => try binaryOp(.MULTIPLY),
             .DIVIDE => try binaryOp(.DIVIDE),
-            .NEGATE => push(-pop()),
+            .NEGATE => {
+                switch (peek(0)) {
+                    .number => push(Value{.number = -(pop().number)}),
+                    else => return InterpretError.RuntimeError,
+                }
+            },
             .RETURN => {
                 printValue(pop());
                 std.debug.print("\n", .{});

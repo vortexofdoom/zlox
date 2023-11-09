@@ -1,9 +1,9 @@
 const std = @import("std");
 const Scanner = @import("scanner.zig");
-const chunk = @import("chunk.zig");
+const chunk_ = @import("chunk.zig");
 const Value = @import("value.zig").Value;
-const Op = chunk.Op;
-const Chunk = chunk.Chunk;
+const Op = chunk_.Op;
+const Chunk = chunk_.Chunk;
 const scanToken = Scanner.scanToken;
 const Token = Scanner.Token;
 const TT = Scanner.TokenType;
@@ -59,7 +59,7 @@ const rules = [_]ParseRule{
     makeRule(null, null, .NONE),         // COMMA
     makeRule(null, null, .NONE),// DOT
     makeRule(unary, binary, .TERM),// MINUS
-    makeRule(unary, binary, .TERM),// PLUS
+    makeRule(null, binary, .TERM),// PLUS
     makeRule(null, null, .NONE),// SEMICOLON
     makeRule(null, binary, .FACTOR),// SLASH
     makeRule(null, binary, .FACTOR),// STAR
@@ -77,17 +77,17 @@ const rules = [_]ParseRule{
     makeRule(null, null, .NONE),// AND
     makeRule(null, null, .NONE),// CLASS
     makeRule(null, null, .NONE),// ELSE
-    makeRule(null, null, .NONE),// FALSE
+    makeRule(literal, null, .NONE),// FALSE
     makeRule(null, null, .NONE),// FOR
     makeRule(null, null, .NONE),// FUN
     makeRule(null, null, .NONE),// IF
-    makeRule(null, null, .NONE),// NIL
+    makeRule(literal, null, .NONE),// NIL
     makeRule(null, null, .NONE),// OR
     makeRule(null, null, .NONE),// PRINT
     makeRule(null, null, .NONE),// RETURN
     makeRule(null, null, .NONE),// SUPER
     makeRule(null, null, .NONE),// THIS
-    makeRule(null, null, .NONE),// TRUE
+    makeRule(literal, null, .NONE),// TRUE
     makeRule(null, null, .NONE),// VAR
     makeRule(null, null, .NONE),// WHILE
     makeRule(null, null, .NONE),// ERROR
@@ -132,6 +132,15 @@ fn endCompiler() !void {
     try emitReturn();
 }
 
+fn literal() !void {
+    switch (parser.previous.type) {
+        .FALSE => try emitOp(.FALSE),
+        .NIL => try emitOp(.NIL),
+        .TRUE => try emitOp(.TRUE),
+        else => unreachable,
+    }
+}
+
 fn makeConstant(val: Value) !u8 {
     return curr_chunk.addConstant(val) catch |err| {
         errorPrev("Too many constants in one chunk.");
@@ -145,7 +154,7 @@ fn number() !void {
         return;
     };
 
-    try emitConstant(value);
+    try emitConstant(Value{ .number = value });
 }
 
 inline fn emitConstant(val: Value) !void {
@@ -181,6 +190,10 @@ fn advance() !void {
 }
 
 fn parsePrecedence(precedence: Precendence) !void {
+    switch (parser.previous.type) {
+        .TRUE => std.debug.print("hi\n", .{}),
+        else => {},
+    }
     try advance();
     if (getRule(parser.previous.type).prefix) |prefix_rule| {
         try prefix_rule();
@@ -220,12 +233,27 @@ fn unary() !void {
     }
 }
 
-fn binary() !void {
-
+inline fn nextPrecedence(precedence: Precendence) Precendence {
+    return @enumFromInt(@intFromEnum(precedence) + 1);
 }
 
-pub fn compile(source: []const u8) !void {
+fn binary() !void {
+    const operator_type = parser.previous.type;
+    const rule = getRule(operator_type);
+    try parsePrecedence(nextPrecedence(rule.precedence));
+
+    switch (operator_type) {
+        .PLUS => try emitOp(.ADD),
+        .MINUS => try emitOp(.SUBTRACT),
+        .STAR => try emitOp(.MULTIPLY),
+        .SLASH => try emitOp(.DIVIDE),
+        else => unreachable,
+    }
+}
+
+pub fn compile(source: []const u8, chunk: *Chunk) !void {
     Scanner.init(source);
+    curr_chunk = chunk;
 
     parser.had_error = false;
     parser.panic_mode = false;
@@ -235,5 +263,9 @@ pub fn compile(source: []const u8) !void {
     };
 
     expression() catch {};
+    //std.debug.print("{any}\n", .{parser.current});
+    endCompiler() catch {
+        return @import("vm.zig").InterpretError.CompileError;
+    };
     consume(.EOF, "Expect end of expression.");
 }

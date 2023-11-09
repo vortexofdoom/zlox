@@ -37,7 +37,7 @@ fn runFile(path: []const u8, alloc: std.mem.Allocator) !void {
     const source: [:0]const u8 = try readFile(path, alloc);
     defer alloc.free(source);
 
-    //std.debug.print("{s}", .{source});
+    //std.debug.print("{s}\n", .{source});
     try Vm.interpret(source);
     // if (Vm.interpret(source)) {
     //     alloc.free(source);
@@ -52,7 +52,7 @@ pub fn main() !void {
     var alloc = gen_purpose.allocator();
 
     defer _ = gen_purpose.deinit();
-
+    
     _ = try Vm.init(alloc);
     defer Vm.deinit();
 

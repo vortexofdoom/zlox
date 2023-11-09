@@ -5,6 +5,9 @@ const ArrayList = std.ArrayList;
 
 pub const Op = enum(u8) {
     CONSTANT,
+    NIL,
+    TRUE,
+    FALSE,
     ADD,
     SUBTRACT,
     MULTIPLY,
@@ -59,7 +62,6 @@ pub const Chunk = struct {
             curr += 1;
         }
         // may want to allow this to error if the offset is too big
-        std.debug.print("", .{});
         return curr;
     }
 

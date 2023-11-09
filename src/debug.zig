@@ -21,9 +21,12 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
     } else {
         print("{d: >4} ", .{line});
     }
-    const instruction = @as(Op, @enumFromInt(chunk.code.items[offset]));
+    const instruction: Op = @enumFromInt(chunk.code.items[offset]);
     switch (instruction) {
         .CONSTANT => return constantInstruction("OP_CONSTANT", chunk, offset),
+        .NIL => return simpleInstruction("OP_NIL", offset),
+        .TRUE => return simpleInstruction("OP_TRUE", offset),
+        .FALSE => return simpleInstruction("OP_FALSE", offset),
         .ADD => return simpleInstruction("OP_ADD", offset),
         .SUBTRACT => return simpleInstruction("OP_SUBTRACT", offset),
         .MULTIPLY => return simpleInstruction("OP_MULTIPLY", offset),
@@ -40,7 +43,9 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
 fn constantInstruction(name: []const u8, chunk: *Chunk, offset: usize) usize {
     const constant = chunk.code.items[offset + 1];
     const value = chunk.constants.items[@as(usize, constant)];
-    print("{s: <16} {d:>4} '{d}'\n", .{ name, constant, value });
+    print("{s: <16} {d:>4} '", .{ name, constant });
+    @import("value.zig").printValue(value);
+    print("'\n", .{});
     return offset + 2;
 }
 
