@@ -16,6 +16,7 @@ const Chunk = chunk_.Chunk;
 const scanToken = Scanner.scanToken;
 const Token = Scanner.Token;
 const TT = Scanner.TokenType;
+const CompileError = @import("error.zig").CompileError;
 
 const Parser = struct {
     current: Token,
@@ -46,9 +47,9 @@ const Compiler = struct {
     }
 
     fn resolveLocal(self: *Compiler, name: []const u8) isize {
-        var i = self.local_count - 1;
+        var i = @as(isize, self.local_count) - 1;
         while (i >= 0) : (i -= 1) {
-            const local = &self.locals[i];
+            const local = &self.locals[@as(usize, @bitCast(i))];
             if (identifiersEqual(name, local.name)) {
                 if (local.depth == -1) {
                     errorPrev("Can't read local variable in its own initializer.");
@@ -93,46 +94,46 @@ inline fn makeRule(comptime prefix: ?ParseFn, comptime infix: ?ParseFn, comptime
 }
 
 const rules = [_]ParseRule{
-    makeRule(grouping, null, .NONE), // LEFT_PAREN
-    makeRule(null, null, .NONE), // RIGHT_PAREN
-    makeRule(null, null, .NONE), // LEFT_BRACE
-    makeRule(null, null, .NONE), // RIGHT_BRACE
-    makeRule(null, null, .NONE), // COMMA
-    makeRule(null, null, .NONE), // DOT
-    makeRule(unary, binary, .TERM), // MINUS
-    makeRule(null, binary, .TERM), // PLUS
-    makeRule(null, null, .NONE), // SEMICOLON
-    makeRule(null, binary, .FACTOR), // SLASH
-    makeRule(null, binary, .FACTOR), // STAR
-    makeRule(unary, null, .NONE), // BANG
-    makeRule(null, binary, .COMPARISON), // BANG_EQUAL
-    makeRule(null, null, .NONE), // EQUAL
-    makeRule(null, binary, .COMPARISON), // EQUAL_EQUAL
-    makeRule(null, binary, .COMPARISON), // GREATER
-    makeRule(null, binary, .COMPARISON), // GREATER_EQUAL
-    makeRule(null, binary, .COMPARISON), // LESS
-    makeRule(null, binary, .COMPARISON), // LESS_EQUAL
-    makeRule(variable, null, .NONE), // IDENTIFIER
-    makeRule(string, null, .NONE), // STRING
-    makeRule(number, null, .NONE), // NUMBER
-    makeRule(null, null, .NONE), // AND
-    makeRule(null, null, .NONE), // CLASS
-    makeRule(null, null, .NONE), // ELSE
-    makeRule(literal, null, .NONE), // FALSE
-    makeRule(null, null, .NONE), // FOR
-    makeRule(null, null, .NONE), // FUN
-    makeRule(null, null, .NONE), // IF
-    makeRule(literal, null, .NONE), // NIL
-    makeRule(null, null, .NONE), // OR
-    makeRule(null, null, .NONE), // PRINT
-    makeRule(null, null, .NONE), // RETURN
-    makeRule(null, null, .NONE), // SUPER
-    makeRule(null, null, .NONE), // THIS
-    makeRule(literal, null, .NONE), // TRUE
-    makeRule(null, null, .NONE), // VAR
-    makeRule(null, null, .NONE), // WHILE
-    makeRule(null, null, .NONE), // ERROR
-    makeRule(null, null, .NONE), // EOF
+    makeRule(grouping,  null,   .NONE), // LEFT_PAREN
+    makeRule(null,      null,   .NONE), // RIGHT_PAREN
+    makeRule(null,      null,   .NONE), // LEFT_BRACE
+    makeRule(null,      null,   .NONE), // RIGHT_BRACE
+    makeRule(null,      null,   .NONE), // COMMA
+    makeRule(null,      null,   .NONE), // DOT
+    makeRule(unary,     binary, .TERM), // MINUS
+    makeRule(null,      binary, .TERM), // PLUS
+    makeRule(null,      null,   .NONE), // SEMICOLON
+    makeRule(null,      binary, .FACTOR), // SLASH
+    makeRule(null,      binary, .FACTOR), // STAR
+    makeRule(unary,     null,   .NONE), // BANG
+    makeRule(null,      binary, .EQUALITY), // BANG_EQUAL
+    makeRule(null,      null,   .NONE), // EQUAL
+    makeRule(null,      binary, .EQUALITY), // EQUAL_EQUAL
+    makeRule(null,      binary, .COMPARISON), // GREATER
+    makeRule(null,      binary, .COMPARISON), // GREATER_EQUAL
+    makeRule(null,      binary, .COMPARISON), // LESS
+    makeRule(null,      binary, .COMPARISON), // LESS_EQUAL
+    makeRule(variable,  null,   .NONE), // IDENTIFIER
+    makeRule(string,    null,   .NONE), // STRING
+    makeRule(number,    null,   .NONE), // NUMBER
+    makeRule(null,      and_,   .AND), // AND
+    makeRule(null,      null,   .NONE), // CLASS
+    makeRule(null,      null,   .NONE), // ELSE
+    makeRule(literal,   null,   .NONE), // FALSE
+    makeRule(null,      null,   .NONE), // FOR
+    makeRule(null,      null,   .NONE), // FUN
+    makeRule(null,      null,   .NONE), // IF
+    makeRule(literal,   null,   .NONE), // NIL
+    makeRule(null,      or_,    .OR), // OR
+    makeRule(null,      null,   .NONE), // PRINT
+    makeRule(null,      null,   .NONE), // RETURN
+    makeRule(null,      null,   .NONE), // SUPER
+    makeRule(null,      null,   .NONE), // THIS
+    makeRule(literal,   null,   .NONE), // TRUE
+    makeRule(null,      null,   .NONE), // VAR
+    makeRule(null,      null,   .NONE), // WHILE
+    makeRule(null,      null,   .NONE), // ERROR
+    makeRule(null,      null,   .NONE), // EOF
 };
 
 var curr_chunk: *Chunk = undefined;
@@ -171,6 +172,8 @@ fn consume(ty: TT, msg: []const u8) void {
 
 fn endCompiler() !void {
     try emitReturn();
+
+    if (!parser.had_error) @import("debug.zig").disassembleChunk(curr_chunk, "code");
 }
 
 fn variable(can_assign: bool) !void {
@@ -231,6 +234,18 @@ inline fn emitConstant(val: Value) !void {
     try emitBytes(.CONSTANT, try makeConstant(val));
 }
 
+fn patchJump(offset: usize) !void {
+    // -2 to adjust for the bytecode for the jump offset itself.
+    const jump = curr_chunk.count() - offset - 2;
+
+    if (jump > std.math.maxInt(u16)) {
+        errorPrev("Too much code to jump over.");
+    }
+
+    curr_chunk.code.items[offset] = @truncate(jump >> 8);
+    curr_chunk.code.items[offset + 1] = @truncate(jump);
+}
+
 fn emitByte(byte: u8) !void {
     try curr_chunk.write(byte, parser.previous.line);
 }
@@ -246,6 +261,25 @@ inline fn emitBytes(byte1: Op, byte2: u8) !void {
 
 inline fn emitReturn() !void {
     try emitOp(.RETURN);
+}
+
+fn emitJump(op: Op) !usize {
+    try emitOp(op);
+    try emitByte(0xff);
+    try emitByte(0xff);
+    return curr_chunk.count() - 2;
+}
+
+fn emitLoop(loopStart: usize) !void {
+    try emitOp(.LOOP);
+
+    const offset = curr_chunk.count() - loopStart + 2;
+    if (offset > std.math.maxInt(u16)) errorPrev("Loop body too large.");
+
+    // std.debug.print("{d}\n", .{offset >> 8});
+    // std.debug.print("{d}\n", .{offset & 0xff});
+    try emitByte(@truncate(offset >> 8));
+    try emitByte(@truncate(offset));
 }
 
 fn advance() void {
@@ -351,9 +385,15 @@ inline fn check(tt: TT) bool {
     return parser.current.type == tt;
 }
 
-fn statement() !void {
+fn statement() anyerror!void {
     if (match(.PRINT)) {
         try printStatement();
+    } else if (match(.IF)) {
+        try ifStatement();
+    } else if (match(.WHILE)) {
+        try whileStatement();
+    } else if (match(.FOR)) {
+        try forStatement();
     } else if (match(.LEFT_BRACE)) {
         beginScope();
         block();
@@ -373,6 +413,84 @@ fn printStatement() !void {
     try expression();
     consume(.SEMICOLON, "Expect ';' after value.");
     try emitOp(.PRINT);
+}
+
+fn ifStatement() !void {
+    consume(.LEFT_PAREN, "Expect '(' after 'if'.");
+    try expression();
+    consume(.RIGHT_PAREN, "Expect ')' after condition.");
+
+    const then_jump = try emitJump(.JUMP_IF_FALSE);
+    try emitOp(Op.POP);
+    try statement();
+    const else_jump = try emitJump(.JUMP);
+
+    try patchJump(then_jump);
+    try emitOp(Op.POP);
+
+    if (match(.ELSE)) try statement();
+    try patchJump(else_jump);
+}
+
+fn whileStatement() !void {
+    const loop_start = curr_chunk.count();
+    consume(.LEFT_PAREN, "Expect '(' after 'while'.");
+    try expression();
+    consume(.RIGHT_PAREN, "Expect ')' after condition.");
+
+    const exit_jump = try emitJump(.JUMP_IF_FALSE);
+    try emitOp(.POP);
+    try statement();
+    try emitLoop(loop_start);
+
+    try patchJump(exit_jump);
+    try emitOp(.POP);
+}
+
+fn forStatement() !void {
+    beginScope();
+    consume(.LEFT_PAREN, "Expect '(' after 'for'.");
+    if (!match(.SEMICOLON)) {
+        // no initializer
+        if (match(.VAR)) {
+            try varDeclaration();
+        } else {
+            try expressionStatement();
+        }
+    }
+
+    var loop_start = curr_chunk.count();
+    var exit_jump: ?usize = null;
+
+    if (!match(.SEMICOLON)) {
+        try expression();
+        consume(.SEMICOLON, "Expect ';' after loop condition.");
+
+        exit_jump = try emitJump(.JUMP_IF_FALSE);
+        try emitOp(.POP);
+    }
+
+    if (!match(.RIGHT_PAREN)) {
+        const body_jump = try emitJump(.JUMP);
+        const inc_start = curr_chunk.count();
+        try expression();
+        try emitOp(.POP);
+        consume(.RIGHT_PAREN, "Expect ')' after for clauses.");
+
+        try emitLoop(loop_start);
+        loop_start = inc_start;
+        try patchJump(body_jump);
+    }
+
+    try statement();
+    try emitLoop(loop_start);
+
+    if (exit_jump) |jump| {
+        try patchJump(jump);
+        try emitOp(.POP);
+    }
+
+    try endScope();
 }
 
 fn identifierConstant(name: *const Token) !u8 {
@@ -409,7 +527,6 @@ fn addLocal(name: []const u8) void {
     current.local_count += 1;
     local.name = name;
     local.depth = -1;
-    local.depth = @as(isize, current.scope_depth);
 }
 
 inline fn markInitialized() void {
@@ -422,6 +539,24 @@ fn defineVariable(global: u8) !void {
         return;
     }
     try emitBytes(.DEFINE_GLOBAL, global);
+}
+
+fn and_(_: bool) !void {
+    const endJump = try emitJump(.JUMP_IF_FALSE);
+    try emitOp(.POP);
+    try parsePrecedence(.AND);
+    try patchJump(endJump);
+}
+
+fn or_(_: bool) !void {
+    const elseJump = try emitJump(.JUMP_IF_FALSE);
+    const endJump = try emitJump(.JUMP);
+
+    try patchJump(elseJump);
+    try emitOp(.POP);
+
+    try parsePrecedence(.OR);
+    try patchJump(endJump);
 }
 
 fn varDeclaration() !void {

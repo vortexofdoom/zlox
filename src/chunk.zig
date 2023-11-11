@@ -24,6 +24,9 @@ pub const Op = enum(u8) {
     NOT,
     NEGATE,
     PRINT,
+    JUMP,
+    JUMP_IF_FALSE,
+    LOOP,
     RETURN,
     _,
 };
@@ -34,6 +37,10 @@ pub const Chunk = struct {
     lines: ArrayList(usize),
     constants: ArrayList(Value),
     allocator: std.mem.Allocator,
+
+    pub inline fn count(self: *Chunk) usize {
+        return self.code.items.len;
+    }
 
     pub fn init(allocator: std.mem.Allocator) !Self {
         return .{

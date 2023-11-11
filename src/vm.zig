@@ -77,6 +77,11 @@ inline fn readByte() u8 {
     return byte;
 }
 
+inline fn readShort() u16 {
+    Vm.ip += 2;
+    return std.mem.readInt(u16, (Vm.ip - 2)[0..2], .big);
+}
+
 inline fn push(val: Value) void {
     Vm.sp[0] = val;
     Vm.sp += 1;
@@ -105,6 +110,8 @@ inline fn binaryOp(comptime op: Op) !void {
         .SUBTRACT => Value{ .number = l - r },
         .MULTIPLY => Value{ .number = l * r },
         .DIVIDE => Value{ .number = l / r },
+        .GREATER => Value { .bool = l > r },
+        .LESS => Value { .bool = l < r },
         else => unreachable,
     });
 }
@@ -128,7 +135,6 @@ inline fn readString() *object.ObjString {
 }
 
 pub fn run() InterpretError!void {
-    var offset: usize = 0;
     while (true) {
         if (comptime DEBUG_TRACE) {
             std.debug.print("          ", .{});
@@ -140,7 +146,7 @@ pub fn run() InterpretError!void {
                 std.debug.print(" ]", .{});
             }
             std.debug.print("\n", .{});
-            offset = @import("debug.zig").disassembleInstruction(Vm.chunk, offset);
+            _ = @import("debug.zig").disassembleInstruction(Vm.chunk, @intFromPtr(Vm.ip - @intFromPtr(Vm.chunk.code.items.ptr)));
         }
 
         const byte = @as(Op, @enumFromInt(readByte()));
@@ -178,6 +184,8 @@ pub fn run() InterpretError!void {
                 }
             },
             .EQUAL => push(Value{ .bool = pop().equals(pop()) }),
+            .GREATER => try binaryOp(.GREATER),
+            .LESS => try binaryOp(.LESS),
             .ADD => {
                 if (peek(0).valType() == peek(1).valType()) switch (peek(0)) {
                     .number => try binaryOp(.ADD),
@@ -208,6 +216,18 @@ pub fn run() InterpretError!void {
             .PRINT => {
                 printValue(pop());
                 std.debug.print("\n", .{});
+            },
+            .JUMP => {
+                const jump = readShort();
+                Vm.ip += jump;
+            },
+            .JUMP_IF_FALSE => {
+                const jump = readShort();
+                if (peek(0).isFalsey()) Vm.ip += jump;
+            },
+            .LOOP => {
+                const jump = readShort();
+                Vm.ip -= jump;
             },
             .RETURN => {
                 return;

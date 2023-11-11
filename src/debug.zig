@@ -43,6 +43,9 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .NOT => return simpleInstruction("OP_NOT", offset),
         .NEGATE => return simpleInstruction("OP_NEGATE", offset),
         .PRINT => return simpleInstruction("OP_PRINT", offset),
+        .JUMP => return jumpInstruction("OP_JUMP", 1, chunk, offset),
+        .JUMP_IF_FALSE => return jumpInstruction("OP_JUMP_IF_FALSE", 1, chunk, offset),
+        .LOOP => return jumpInstruction("OP_LOOP", -1, chunk, offset),
         .RETURN => return simpleInstruction("OP_RETURN", offset),
         _ => {
             print("Unknown opcode {d}\n", .{@intFromEnum(instruction)});
@@ -69,4 +72,10 @@ fn byteInstruction(name: []const u8, chunk: *Chunk, offset: usize) usize {
     const slot = chunk.code.items[offset + 1];
     print("{s: <16} {d:>4}\n", .{ name, slot });
     return offset + 2;
+}
+
+fn jumpInstruction(name: []const u8, sign: isize, chunk: *Chunk, offset: usize) usize {
+    const jump = std.mem.readPackedInt(u16, chunk.code.items[offset + 1 .. offset + 3], 0, .big);
+    print("{s: <16} {d:>4} -> {d}\n", .{ name, offset, (@as(isize, @bitCast(offset)) + 3 + sign * jump) });
+    return offset + 3;
 }
