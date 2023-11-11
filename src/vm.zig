@@ -1,8 +1,11 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const chunk_ = @import("chunk.zig");
+const object = @import("object.zig");
+const Obj = object.Obj;
 const Op = chunk_.Op;
 const Chunk = chunk_.Chunk;
+const HashMap = @import("hashmap.zig").HashMap;
 const value = @import("value.zig");
 const Value = value.Value;
 const printValue = value.printValue;
@@ -23,6 +26,9 @@ chunk: *Chunk,
 ip: [*]u8,
 stack: [STACK_MAX]Value,
 sp: [*]Value,
+globals: HashMap,
+strings: HashMap,
+objects: ?*Obj,
 
 const Self = @This();
 pub var Vm: Self = .{
@@ -31,15 +37,29 @@ pub var Vm: Self = .{
     .ip = undefined,
     .stack = [_]Value{Value{ .nil = {} }} ** STACK_MAX,
     .sp = undefined,
+    .strings = undefined,
+    .globals = undefined,
+    .objects = null,
 };
 
 pub fn init(allocator: Allocator) !*Self {
     Vm.allocator = allocator;
     Vm.sp = Vm.stack[0..];
+    Vm.strings.init();
+    Vm.globals.init();
     return &Vm;
 }
 
-pub fn deinit() void {}
+pub fn deinit() void {
+    Vm.globals.free();
+    Vm.strings.free();
+    var obj = Vm.objects;
+    while (obj) |o| {
+        const next = o.next;
+        o.free();
+        obj = next;
+    }
+}
 
 pub fn interpret(source: []const u8) InterpretError!void {
     var chunk = try Chunk.init(Vm.allocator);
@@ -89,8 +109,22 @@ inline fn binaryOp(comptime op: Op) !void {
     });
 }
 
-inline fn peek(distance: isize) Value {
-    return (Vm.sp + distance - 1)[0];
+inline fn peek(distance: usize) Value {
+    return (Vm.sp - distance - 1)[0];
+}
+
+fn concatenate() !void {
+    const r = pop().obj.asString();
+    const l = pop().obj.asString();
+    const len = l.len + r.len;
+    var chars = try Vm.allocator.alloc(u8, len);
+    @memcpy(chars[0..l.len], l.ptr[0..l.len]);
+    @memcpy(chars[l.len..len], r.ptr[0..r.len]);
+    push(Value.obj(try object.takeString(chars, Vm.allocator)));
+}
+
+inline fn readString() *object.ObjString {
+    return @ptrCast(readConstant().obj);
 }
 
 pub fn run() InterpretError!void {
@@ -118,8 +152,49 @@ pub fn run() InterpretError!void {
             .NIL => push(Value{ .nil = {} }),
             .TRUE => push(Value{ .bool = true }),
             .FALSE => push(Value{ .bool = false }),
-            .EQUAL => push(Value{.bool = pop().equals(pop())}),
-            .ADD => try binaryOp(.ADD),
+            .POP => _ = pop(),
+            .GET_LOCAL => push(Vm.stack[readByte()]),
+            .SET_LOCAL => {
+                const slot = readByte();
+                Vm.stack[slot] = peek(0);
+            },
+            .GET_GLOBAL => {
+                const name = readString();
+                const val = Vm.globals.get(name) orelse {
+                    return InterpretError.RuntimeError;
+                };
+                push(val);
+            },
+            .DEFINE_GLOBAL => {
+                _ = Vm.globals.insert(readString(), peek(0)) catch return InterpretError.RuntimeError;
+                _ = pop();
+            },
+            .SET_GLOBAL => {
+                const name = readString();
+                if (Vm.globals.insert(name, peek(0)) catch return InterpretError.RuntimeError) {
+                    _ = Vm.globals.delete(name);
+                    // TODO: runtimeError()
+                    return InterpretError.RuntimeError;
+                }
+            },
+            .EQUAL => push(Value{ .bool = pop().equals(pop()) }),
+            .ADD => {
+                if (peek(0).valType() == peek(1).valType()) switch (peek(0)) {
+                    .number => try binaryOp(.ADD),
+                    .obj => |o| {
+                        switch (o.*.type) {
+                            .STRING => {
+                                if (peek(1).objType() == .STRING) concatenate() catch {
+                                    return InterpretError.RuntimeError;
+                                };
+                            },
+                            else => return InterpretError.RuntimeError,
+                        }
+                        if (o.type == peek(1).objType()) {}
+                    },
+                    else => return InterpretError.RuntimeError,
+                };
+            },
             .SUBTRACT => try binaryOp(.SUBTRACT),
             .MULTIPLY => try binaryOp(.MULTIPLY),
             .DIVIDE => try binaryOp(.DIVIDE),
@@ -130,9 +205,11 @@ pub fn run() InterpretError!void {
                     else => return InterpretError.RuntimeError,
                 }
             },
-            .RETURN => {
+            .PRINT => {
                 printValue(pop());
                 std.debug.print("\n", .{});
+            },
+            .RETURN => {
                 return;
             },
             else => return InterpretError.RuntimeError,

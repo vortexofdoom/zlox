@@ -1,6 +1,6 @@
 const std = @import("std");
 const Value = @import("value.zig").Value;
-const Error = @import("error.zig").Error;
+const Error = @import("error.zig").CompileError;
 const ArrayList = std.ArrayList;
 
 pub const Op = enum(u8) {
@@ -8,6 +8,12 @@ pub const Op = enum(u8) {
     NIL,
     TRUE,
     FALSE,
+    POP,
+    GET_LOCAL,
+    SET_LOCAL,
+    GET_GLOBAL,
+    DEFINE_GLOBAL,
+    SET_GLOBAL,
     EQUAL,
     GREATER,
     LESS,
@@ -17,6 +23,7 @@ pub const Op = enum(u8) {
     DIVIDE,
     NOT,
     NEGATE,
+    PRINT,
     RETURN,
     _,
 };

@@ -3,6 +3,7 @@ const Chunk = @import("chunk.zig").Chunk;
 const Op = @import("chunk.zig").Op;
 const debug = @import("debug.zig");
 const Vm = @import("vm.zig");
+const memory = @import("memory.zig");
 const InterpretError = Vm.InterpretError;
 
 fn repl() !void {
@@ -37,29 +38,29 @@ fn runFile(path: []const u8, alloc: std.mem.Allocator) !void {
     defer alloc.free(source);
 
     //std.debug.print("{s}\n", .{source});
-    try Vm.interpret(source);
-    // if (Vm.interpret(source)) {
-    //     alloc.free(source);
-    // } else |err| switch (err) {
-    //     InterpretError.CompileError => std.os.exit(65),
-    //     InterpretError.RuntimeError => std.os.exit(70),
-    // }
+    Vm.interpret(source) catch |err| switch (err) {
+        InterpretError.CompileError => std.os.exit(65),
+        InterpretError.RuntimeError => std.os.exit(70),
+    };
 }
 
 pub fn main() !void {
     var gen_purpose = std.heap.GeneralPurposeAllocator(.{}){};
     var alloc = gen_purpose.allocator();
+    var gc = memory.GcAllocator.init(alloc);
+
+    var gc_alloc = gc.allocator();
 
     defer _ = gen_purpose.deinit();
 
-    _ = try Vm.init(alloc);
+    _ = try Vm.init(gc.allocator());
     defer Vm.deinit();
 
     var args = std.process.args();
     _ = args.skip();
 
     if (args.next()) |path| {
-        try runFile(path, alloc);
+        try runFile(path, gc_alloc);
     } else {
         try repl();
     }

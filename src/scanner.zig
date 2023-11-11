@@ -104,7 +104,7 @@ fn skipWhitespace() void {
                     while (peek() != '\n' and !isAtEnd()) {
                         scanner.current += 1;
                     }
-                    scanner.line += 1;
+                    if (!isAtEnd()) scanner.line += 1;
                 } else return;
             },
             else => return,

@@ -27,6 +27,12 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .NIL => return simpleInstruction("OP_NIL", offset),
         .TRUE => return simpleInstruction("OP_TRUE", offset),
         .FALSE => return simpleInstruction("OP_FALSE", offset),
+        .POP => return simpleInstruction("OP_POP", offset),
+        .GET_LOCAL => return byteInstruction("OP_GET_LOCAL", chunk, offset),
+        .SET_LOCAL => return byteInstruction("OP_SET_LOCAL", chunk, offset),
+        .GET_GLOBAL => return constantInstruction("OP_GET_GLOBAL", chunk, offset),
+        .DEFINE_GLOBAL => return constantInstruction("OP_DEFINE_GLOBAL", chunk, offset),
+        .SET_GLOBAL => return constantInstruction("OP_SET_GLOBAL", chunk, offset),
         .EQUAL => return simpleInstruction("OP_EQUAL", offset),
         .GREATER => return simpleInstruction("OP_GREATER", offset),
         .LESS => return simpleInstruction("OP_LESS", offset),
@@ -36,6 +42,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .DIVIDE => return simpleInstruction("OP_DIVIDE", offset),
         .NOT => return simpleInstruction("OP_NOT", offset),
         .NEGATE => return simpleInstruction("OP_NEGATE", offset),
+        .PRINT => return simpleInstruction("OP_PRINT", offset),
         .RETURN => return simpleInstruction("OP_RETURN", offset),
         _ => {
             print("Unknown opcode {d}\n", .{@intFromEnum(instruction)});
@@ -56,4 +63,10 @@ fn constantInstruction(name: []const u8, chunk: *Chunk, offset: usize) usize {
 fn simpleInstruction(name: []const u8, offset: usize) usize {
     print("{s}\n", .{name});
     return offset + 1;
+}
+
+fn byteInstruction(name: []const u8, chunk: *Chunk, offset: usize) usize {
+    const slot = chunk.code.items[offset + 1];
+    print("{s: <16} {d:>4}\n", .{ name, slot });
+    return offset + 2;
 }
