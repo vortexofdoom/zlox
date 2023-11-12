@@ -55,9 +55,9 @@ const Compiler = struct {
         compiler.function = null;
         compiler.type = ty;
 
-        compiler.function = try ObjFunction.new(vm.Vm.allocator);
+        compiler.function = try ObjFunction.new();
         if (ty != FunctionType.script) {
-            compiler.function.?.name = try copyString(parser.previous.str, vm.Vm.allocator);
+            compiler.function.?.name = try copyString(parser.previous.str);
         }
 
         var local = compiler.locals[compiler.local_count];
@@ -120,7 +120,7 @@ inline fn makeRule(comptime prefix: ?ParseFn, comptime infix: ?ParseFn, comptime
 
 // zig fmt: off
 const rules = [_]ParseRule{
-    makeRule(grouping,  null,   .NONE), // LEFT_PAREN
+    makeRule(grouping,  call,   .CALL), // LEFT_PAREN
     makeRule(null,      null,   .NONE), // RIGHT_PAREN
     makeRule(null,      null,   .NONE), // LEFT_BRACE
     makeRule(null,      null,   .NONE), // RIGHT_BRACE
@@ -199,7 +199,7 @@ fn consume(ty: TT, msg: []const u8) void {
 fn endCompiler() !*ObjFunction {
     try emitReturn();
     const fun = current.?.function.?;
-    if (!parser.had_error) @import("debug.zig").disassembleChunk(currentChunk(), if (fun.name) |name| name.ptr[0..name.len] else "<script>");
+    if ( !parser.had_error) @import("debug.zig").disassembleChunk(currentChunk(), if (fun.name) |name| name.ptr[0..name.len] else "<script>");
     current = current.?.enclosing;
     return fun;
 }
@@ -230,7 +230,7 @@ fn namedVariable(name: Token, can_assign: bool) !void {
 }
 
 fn string(_: bool) !void {
-    try emitConstant(Value.obj(try copyString(parser.previous.str[1 .. parser.previous.str.len - 1], vm.Vm.allocator)));
+    try emitConstant(Value.obj(try copyString(parser.previous.str[1 .. parser.previous.str.len - 1])));
 }
 
 fn literal(_: bool) !void {
@@ -288,6 +288,7 @@ inline fn emitBytes(byte1: Op, byte2: u8) !void {
 }
 
 inline fn emitReturn() !void {
+    try emitOp(Op.NIL);
     try emitOp(.RETURN);
 }
 
@@ -420,6 +421,8 @@ fn statement() anyerror!void {
         try printStatement();
     } else if (match(.IF)) {
         try ifStatement();
+    } else if (match(.RETURN)) {
+        try returnStatement();
     } else if (match(.WHILE)) {
         try whileStatement();
     } else if (match(.FOR)) {
@@ -430,6 +433,19 @@ fn statement() anyerror!void {
         try endScope();
     } else {
         try expressionStatement();
+    }
+}
+
+fn returnStatement() !void {
+    if (current.?.type == .script) {
+        errorPrev("Can't return from top-level code.");
+    }
+    if (match(.SEMICOLON)) {
+        try emitReturn();
+    } else {
+        try expression();
+        consume(.SEMICOLON, "Expect ';' after return value.");
+        try emitOp(.RETURN);
     }
 }
 
@@ -524,7 +540,7 @@ fn forStatement() !void {
 }
 
 fn identifierConstant(name: *const Token) !u8 {
-    return makeConstant(Value.obj(try copyString(name.str, vm.Vm.allocator)));
+    return makeConstant(Value.obj(try copyString(name.str)));
 }
 
 fn parseVariable(msg: []const u8) !u8 {
@@ -577,21 +593,49 @@ fn defineVariable(global: u8) !void {
 }
 
 fn and_(_: bool) !void {
-    const endJump = try emitJump(.JUMP_IF_FALSE);
+    const end_jump = try emitJump(.JUMP_IF_FALSE);
     try emitOp(.POP);
     try parsePrecedence(.AND);
-    try patchJump(endJump);
+    try patchJump(end_jump);
 }
 
 fn or_(_: bool) !void {
-    const elseJump = try emitJump(.JUMP_IF_FALSE);
-    const endJump = try emitJump(.JUMP);
+    const else_jump = try emitJump(.JUMP_IF_FALSE);
+    const end_jump = try emitJump(.JUMP);
 
-    try patchJump(elseJump);
+    try patchJump(else_jump);
     try emitOp(.POP);
 
     try parsePrecedence(.OR);
-    try patchJump(endJump);
+    try patchJump(end_jump);
+}
+
+fn call(_: bool) !void {
+    const arg_count = try argumentList();
+    std.debug.print("{d}\n", .{arg_count});
+    try emitBytes(Op.CALL, arg_count);
+}
+
+fn argumentList() !u8 {
+    var arg_count: u8 = 0;
+    if (!check(.RIGHT_PAREN)) {
+        while (true) 
+        {
+            try expression();
+            if (arg_count == 255) {
+                errorPrev("Can't have more than 255 arguments.");
+                break;
+            }
+            arg_count += 1;
+            if (!match(.COMMA)) break;
+        }
+    }
+    consume(.RIGHT_PAREN, "Expect ')' after arguments.");
+    std.debug.print("hefAHwek", .{});
+    object.printObject(@ptrCast(current.?.function.?));
+    std.debug.print(" {d}\n", .{arg_count});
+    //std.debug.print("{s}", .{});
+    return arg_count;
 }
 
 fn varDeclaration() !void {

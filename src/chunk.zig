@@ -27,6 +27,7 @@ pub const Op = enum(u8) {
     JUMP,
     JUMP_IF_FALSE,
     LOOP,
+    CALL,
     RETURN,
     _,
 };

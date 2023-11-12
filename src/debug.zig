@@ -46,6 +46,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .JUMP => return jumpInstruction("OP_JUMP", 1, chunk, offset),
         .JUMP_IF_FALSE => return jumpInstruction("OP_JUMP_IF_FALSE", 1, chunk, offset),
         .LOOP => return jumpInstruction("OP_LOOP", -1, chunk, offset),
+        .CALL => return byteInstruction("OP_CALL", chunk, offset),
         .RETURN => return simpleInstruction("OP_RETURN", offset),
         _ => {
             print("Unknown opcode {d}\n", .{@intFromEnum(instruction)});

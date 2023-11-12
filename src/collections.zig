@@ -23,7 +23,7 @@ pub fn ArrayList(comptime T: type) type {
         capacity: usize = 0,
 
         pub fn init(alloc: Allocator) Self {
-            allocator = alloc; 
+            allocator = alloc;
             return Self{
                 .capacity = 0,
                 .count = 0,
@@ -62,7 +62,7 @@ pub const HashMap = struct {
     entries: []?Entry,
 
     pub fn init(self: *HashMap) void {
-        self.allocator = vm.Vm.allocator;
+        self.allocator = vm.vm.allocator;
         self.count = 0;
         self.entries = &.{};
     }
