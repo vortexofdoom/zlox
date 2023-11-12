@@ -63,12 +63,6 @@ pub fn printValue(val: Value) void {
         .number => |n| std.debug.print("{d}", .{n}),
         .nil => std.debug.print("nil", .{}),
         .bool => |b| std.debug.print("{any}", .{b}),
-        .obj => |o| switch (o.*.type) {
-            .STRING => {
-                const str = @as(*ObjString, @ptrCast(@alignCast(o))).*;
-                std.debug.print("{s}", .{str.ptr[0..str.len]});
-            },
-            _ => {},
-        },
+        .obj => |o| object.printObject(o),
     }
 }

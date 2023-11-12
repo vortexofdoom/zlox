@@ -5,22 +5,26 @@ const object = @import("object.zig");
 const Obj = object.Obj;
 const Op = chunk_.Op;
 const Chunk = chunk_.Chunk;
-const HashMap = @import("hashmap.zig").HashMap;
+const HashMap = @import("collections.zig").HashMap;
 const value = @import("value.zig");
 const Value = value.Value;
 const printValue = value.printValue;
 const print = std.debug.print;
 const compile = @import("compiler.zig").compile;
+const ObjFunction = object.ObjFunction;
 
 const DEBUG_TRACE: bool = true;
 
-const STACK_MAX = 256;
+const FRAMES_MAX = 64;
+const STACK_MAX = 256 * FRAMES_MAX;
 
 pub const InterpretError = error{
     CompileError,
     RuntimeError,
 };
 
+frames: [FRAMES_MAX]CallFrame,
+frame_count: usize = 0,
 allocator: Allocator,
 chunk: *Chunk,
 ip: [*]u8,
@@ -32,6 +36,7 @@ objects: ?*Obj,
 
 const Self = @This();
 pub var Vm: Self = .{
+    .frames = [1]CallFrame{undefined} ** FRAMES_MAX,
     .allocator = undefined,
     .chunk = undefined,
     .ip = undefined,
@@ -40,6 +45,31 @@ pub var Vm: Self = .{
     .strings = undefined,
     .globals = undefined,
     .objects = null,
+};
+
+const CallFrame = struct {
+    function: *ObjFunction,
+    ip: [*]u8,
+    slots: [*]Value,
+
+    inline fn readByte(frame: *CallFrame) u8 {
+        const byte = frame.ip[0];
+        frame.ip += 1;
+        return byte;
+    }
+
+    inline fn readShort(frame: *CallFrame) u16 {
+        frame.ip += 2;
+        return std.mem.readInt(u16, (frame.ip - 2)[0..2], .big);
+    }
+
+    fn readConstant(frame: *CallFrame) Value {
+        return frame.function.chunk.constants.items[frame.readByte()];
+    }
+
+    inline fn readString(frame: *CallFrame) *object.ObjString {
+        return @ptrCast(frame.readConstant().obj);
+    }
 };
 
 pub fn init(allocator: Allocator) !*Self {
@@ -62,24 +92,15 @@ pub fn deinit() void {
 }
 
 pub fn interpret(source: []const u8) InterpretError!void {
-    var chunk = try Chunk.init(Vm.allocator);
-    defer chunk.deinit();
-    try compile(source, &chunk);
-    Vm.chunk = &chunk;
-    Vm.ip = Vm.chunk.code.items.ptr;
+    const fun = compile(source) catch return InterpretError.CompileError;
+    push(Value.obj(fun));
+    var frame = &Vm.frames[Vm.frame_count];
+    Vm.frame_count += 1;
+    frame.function = fun;
+    frame.ip = fun.chunk.code.items;
+    frame.slots = &Vm.stack;
 
     try run();
-}
-
-inline fn readByte() u8 {
-    const byte = Vm.ip[0];
-    Vm.ip += 1;
-    return byte;
-}
-
-inline fn readShort() u16 {
-    Vm.ip += 2;
-    return std.mem.readInt(u16, (Vm.ip - 2)[0..2], .big);
 }
 
 inline fn push(val: Value) void {
@@ -90,10 +111,6 @@ inline fn push(val: Value) void {
 inline fn pop() Value {
     Vm.sp -= 1;
     return Vm.sp[0];
-}
-
-fn readConstant() Value {
-    return Vm.chunk.constants.items[readByte()];
 }
 
 inline fn binaryOp(comptime op: Op) !void {
@@ -110,8 +127,8 @@ inline fn binaryOp(comptime op: Op) !void {
         .SUBTRACT => Value{ .number = l - r },
         .MULTIPLY => Value{ .number = l * r },
         .DIVIDE => Value{ .number = l / r },
-        .GREATER => Value { .bool = l > r },
-        .LESS => Value { .bool = l < r },
+        .GREATER => Value{ .bool = l > r },
+        .LESS => Value{ .bool = l < r },
         else => unreachable,
     });
 }
@@ -130,15 +147,12 @@ fn concatenate() !void {
     push(Value.obj(try object.takeString(chars, Vm.allocator)));
 }
 
-inline fn readString() *object.ObjString {
-    return @ptrCast(readConstant().obj);
-}
-
 pub fn run() InterpretError!void {
+    var frame = &Vm.frames[Vm.frame_count - 1];
     while (true) {
         if (comptime DEBUG_TRACE) {
             std.debug.print("          ", .{});
-            var slot: [*]Value = &Vm.stack;
+            var slot: [*]Value = frame.slots;
             //for (self.stack[0..@intFromPtr(self.sp) - @intFromPtr(&self.stack)]) |slot| {
             while (@intFromPtr(slot) < @intFromPtr(Vm.sp)) : (slot += 1) {
                 std.debug.print("[ ", .{});
@@ -146,37 +160,40 @@ pub fn run() InterpretError!void {
                 std.debug.print(" ]", .{});
             }
             std.debug.print("\n", .{});
-            _ = @import("debug.zig").disassembleInstruction(Vm.chunk, @intFromPtr(Vm.ip - @intFromPtr(Vm.chunk.code.items.ptr)));
+            _ = @import("debug.zig").disassembleInstruction(&frame.function.chunk, @intFromPtr(frame.ip - @intFromPtr(frame.function.chunk.code.items)));
         }
 
-        const byte = @as(Op, @enumFromInt(readByte()));
+        const byte = @as(Op, @enumFromInt(frame.readByte()));
         switch (byte) {
             .CONSTANT => {
-                const constant = readConstant();
+                const constant = frame.readConstant();
                 push(constant);
             },
             .NIL => push(Value{ .nil = {} }),
             .TRUE => push(Value{ .bool = true }),
             .FALSE => push(Value{ .bool = false }),
             .POP => _ = pop(),
-            .GET_LOCAL => push(Vm.stack[readByte()]),
+            .GET_LOCAL => {
+                const slot = frame.readByte();
+                push(frame.slots[slot]);
+            },
             .SET_LOCAL => {
-                const slot = readByte();
-                Vm.stack[slot] = peek(0);
+                const slot = frame.readByte();
+                frame.slots[slot] = peek(0);
             },
             .GET_GLOBAL => {
-                const name = readString();
+                const name = frame.readString();
                 const val = Vm.globals.get(name) orelse {
                     return InterpretError.RuntimeError;
                 };
                 push(val);
             },
             .DEFINE_GLOBAL => {
-                _ = Vm.globals.insert(readString(), peek(0)) catch return InterpretError.RuntimeError;
+                _ = Vm.globals.insert(frame.readString(), peek(0)) catch return InterpretError.RuntimeError;
                 _ = pop();
             },
             .SET_GLOBAL => {
-                const name = readString();
+                const name = frame.readString();
                 if (Vm.globals.insert(name, peek(0)) catch return InterpretError.RuntimeError) {
                     _ = Vm.globals.delete(name);
                     // TODO: runtimeError()
@@ -218,16 +235,16 @@ pub fn run() InterpretError!void {
                 std.debug.print("\n", .{});
             },
             .JUMP => {
-                const jump = readShort();
-                Vm.ip += jump;
+                const jump = frame.readShort();
+                frame.ip += jump;
             },
             .JUMP_IF_FALSE => {
-                const jump = readShort();
-                if (peek(0).isFalsey()) Vm.ip += jump;
+                const jump = frame.readShort();
+                if (peek(0).isFalsey()) frame.ip += jump;
             },
             .LOOP => {
-                const jump = readShort();
-                Vm.ip -= jump;
+                const jump = frame.readShort();
+                frame.ip -= jump;
             },
             .RETURN => {
                 return;

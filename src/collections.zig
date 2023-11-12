@@ -13,6 +13,44 @@ inline fn growCapacity(cap: usize) usize {
     return if (cap < 8) 8 else cap << 1;
 }
 
+var allocator: std.mem.Allocator = undefined;
+
+pub fn ArrayList(comptime T: type) type {
+    return extern struct {
+        const Self = @This();
+        items: [*]T = &[_]T{},
+        count: usize = 0,
+        capacity: usize = 0,
+
+        pub fn init(alloc: Allocator) Self {
+            allocator = alloc; 
+            return Self{
+                .capacity = 0,
+                .count = 0,
+            };
+        }
+
+        pub fn append(self: *Self, item: T) !void {
+            if (self.capacity < self.count + 1) {
+                const old_cap = self.capacity;
+                self.capacity = growCapacity(self.capacity);
+                self.items = (try allocator.realloc(self.items[0..old_cap], self.capacity)).ptr;
+                //std.debug.print("reallocating {any} array: ", .{T});
+            }
+
+            self.items[self.count] = item;
+            self.count += 1;
+            //std.debug.print("{any}\n", .{self.items[0..self.count]});
+        }
+
+        pub fn deinit(self: Self) void {
+            if (@sizeOf(T) > 0) {
+                allocator.free(self.items[0..self.capacity]);
+            }
+        }
+    };
+}
+
 const Entry = struct {
     key: ?*ObjString,
     val: Value,

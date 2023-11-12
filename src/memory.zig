@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub var allocator = undefined;
+
 pub const GcAllocator = struct {
     const Self = @This();
     run_gc: bool = false,

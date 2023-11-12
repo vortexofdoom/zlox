@@ -1,7 +1,7 @@
 const std = @import("std");
 const Value = @import("value.zig").Value;
 const Error = @import("error.zig").CompileError;
-const ArrayList = std.ArrayList;
+const ArrayList = @import("collections.zig").ArrayList;
 
 pub const Op = enum(u8) {
     CONSTANT,
@@ -31,24 +31,23 @@ pub const Op = enum(u8) {
     _,
 };
 
-pub const Chunk = struct {
+var alloc: std.mem.Allocator = undefined;
+
+pub const Chunk = extern struct {
     const Self = @This();
     code: ArrayList(u8),
     lines: ArrayList(usize),
     constants: ArrayList(Value),
-    allocator: std.mem.Allocator,
 
     pub inline fn count(self: *Chunk) usize {
-        return self.code.items.len;
+        return self.code.count;
     }
 
-    pub fn init(allocator: std.mem.Allocator) !Self {
-        return .{
-            .code = ArrayList(u8).init(allocator),
-            .lines = ArrayList(usize).init(allocator),
-            .constants = ArrayList(Value).init(allocator),
-            .allocator = allocator,
-        };
+    pub fn init(self: *Self, allocator: std.mem.Allocator) void {
+        alloc = allocator;
+        self.code = ArrayList(u8).init(alloc);
+        self.lines = ArrayList(usize).init(alloc);
+        self.constants = ArrayList(Value).init(alloc);
     }
 
     pub fn deinit(self: *Self) void {
@@ -58,10 +57,10 @@ pub const Chunk = struct {
     }
 
     pub fn write(self: *Self, byte: u8, line: usize) !void {
-        while (self.lines.items.len < line) {
+        while (self.lines.count < line) {
             try self.lines.append(0);
         }
-        if (self.lines.items.len > line) {
+        if (self.count() > line) {
             self.lines.items[line] += 1;
         } else {
             try self.lines.append(1);
@@ -72,7 +71,7 @@ pub const Chunk = struct {
     pub fn getLine(self: *Self, offset: usize) usize {
         var curr: usize = 0;
         var total: usize = 0;
-        for (self.lines.items) |line| {
+        for (self.lines.items[0..self.lines.count]) |line| {
             total += line;
             if (total > offset) {
                 break;
@@ -84,10 +83,10 @@ pub const Chunk = struct {
     }
 
     pub fn addConstant(self: *Self, value: Value) !u8 {
-        if (self.constants.items.len >= 256) {
+        if (self.constants.count >= 256) {
             return Error.tooManyConstants;
         }
         try self.constants.append(value);
-        return @intCast(self.constants.items.len - 1);
+        return @intCast(self.constants.count - 1);
     }
 };

@@ -8,7 +8,7 @@ const Op = chunks.Op;
 pub fn disassembleChunk(chunk: *Chunk, name: []const u8) void {
     std.debug.print("== {s} ==\n", .{name});
     var i: usize = 0;
-    while (i < chunk.code.items.len) {
+    while (i < chunk.code.count) {
         i = disassembleInstruction(chunk, i);
     }
 }
