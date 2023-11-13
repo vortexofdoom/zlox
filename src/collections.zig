@@ -9,7 +9,7 @@ const ObjString = object.ObjString;
 
 const TABLE_MAX_LOAD = 0.75;
 
-inline fn growCapacity(cap: usize) usize {
+inline fn growCapacity(cap: u32) u32 {
     return if (cap < 8) 8 else cap << 1;
 }
 
@@ -19,8 +19,8 @@ pub fn ArrayList(comptime T: type) type {
     return extern struct {
         const Self = @This();
         items: [*]T = &[_]T{},
-        count: usize = 0,
-        capacity: usize = 0,
+        count: u32 = 0,
+        capacity: u32 = 0,
 
         pub fn init(alloc: Allocator) Self {
             allocator = alloc;
@@ -33,7 +33,7 @@ pub fn ArrayList(comptime T: type) type {
         pub fn initCapacity(capacity: usize, alloc: Allocator) !Self {
             const items = try alloc.alloc(T, capacity);
             return Self{
-                .capacity = capacity,
+                .capacity = @truncate(capacity),
                 .count = 0,
                 .items = items.ptr,
             };
@@ -91,7 +91,7 @@ pub const HashMap = struct {
 
     pub fn insert(self: *HashMap, key: *ObjString, val: Value) !bool {
         if (@as(f64, @floatFromInt(self.count + 1)) > @as(f64, @floatFromInt(self.entries.len)) * TABLE_MAX_LOAD) {
-            try self.adjustCapacity(growCapacity(self.entries.len));
+            try self.adjustCapacity(growCapacity(@truncate(self.entries.len)));
         }
 
         var entry = findEntry(self.entries, key);

@@ -79,7 +79,7 @@ pub const ObjString = extern struct {
 pub const ObjFunction = extern struct {
     obj: Obj,
     arity: u8 = 0,
-    upvalue_count: usize = 0,
+    upvalue_count: u16 = 0,
     chunk: Chunk,
     name: ?*ObjString = null,
 

@@ -10,7 +10,7 @@ const vm = @import("vm.zig");
 
 pub var allocator = undefined;
 
-pub const DEBUG_LOG_GC = false;
+pub const DEBUG_LOG_GC = true;
 
 pub const GcAllocator = struct {
     const Self = @This();
