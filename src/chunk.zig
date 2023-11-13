@@ -14,6 +14,8 @@ pub const Op = enum(u8) {
     GET_GLOBAL,
     DEFINE_GLOBAL,
     SET_GLOBAL,
+    GET_UPVALUE,
+    SET_UPVALUE,
     EQUAL,
     GREATER,
     LESS,
@@ -28,6 +30,8 @@ pub const Op = enum(u8) {
     JUMP_IF_FALSE,
     LOOP,
     CALL,
+    CLOSURE,
+    CLOSE_UPVALUE,
     RETURN,
     _,
 };
@@ -58,14 +62,18 @@ pub const Chunk = extern struct {
     }
 
     pub fn write(self: *Self, byte: u8, line: usize) !void {
-        while (self.lines.count < line) {
-            try self.lines.append(0);
-        }
-        if (self.count() > line) {
-            self.lines.items[line] += 1;
-        } else {
-            try self.lines.append(1);
-        }
+        // TODO: Fix this
+        try self.lines.append(line);
+        // while (self.lines.count < line - 1) {
+        //     try self.lines.append(0);
+        // }
+        // if (self.count() >= line) {
+        //     self.lines.items[line - 1] += 1;
+        // } else {
+        //     try self.lines.append(1);
+        // }
+        // std.debug.print("adding to line {d}: {any}\n", .{line, self.lines.items[0..self.lines.count]});
+        
         try self.code.append(byte);
     }
 
@@ -73,6 +81,10 @@ pub const Chunk = extern struct {
         var curr: usize = 0;
         var total: usize = 0;
         for (self.lines.items[0..self.lines.count]) |line| {
+            // for (0..line) |_| {
+            //     std.debug.print("{d}", .{line});
+            // }
+            // if (line != 0) std.debug.print("\n", .{});
             total += line;
             if (total > offset) {
                 break;
@@ -80,7 +92,8 @@ pub const Chunk = extern struct {
             curr += 1;
         }
         // may want to allow this to error if the offset is too big
-        return curr;
+        //std.debug.print("\n{any}\n", .{self.lines.items[0..curr + 1]});
+        return curr + 1;
     }
 
     pub fn addConstant(self: *Self, value: Value) !u8 {

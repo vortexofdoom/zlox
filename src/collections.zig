@@ -30,6 +30,15 @@ pub fn ArrayList(comptime T: type) type {
             };
         }
 
+        pub fn initCapacity(capacity: usize, alloc: Allocator) !Self {
+            const items = try alloc.alloc(T, capacity);
+            return Self{
+                .capacity = capacity,
+                .count = 0,
+                .items = items.ptr,
+            };
+        }
+
         pub fn append(self: *Self, item: T) !void {
             if (self.capacity < self.count + 1) {
                 const old_cap = self.capacity;

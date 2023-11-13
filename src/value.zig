@@ -5,7 +5,7 @@ const Obj = object.Obj;
 const ObjType = object.ObjType;
 const ObjString = object.ObjString;
 
-pub const ValueType = enum {
+pub const ValueType = enum(u8) {
     bool,
     nil,
     number,
@@ -18,7 +18,7 @@ pub const Value = union(ValueType) {
     number: f64,
     obj: *Obj,
 
-    pub const nil = Value{ .nil = {} };
+    pub const Nil = Value{ .nil = {} };
 
     pub fn isFalsey(self: Value) bool {
         return switch (self) {

@@ -35,6 +35,12 @@ const ParseRule = struct {
 const Local = struct {
     name: []const u8 = "",
     depth: isize = -1,
+    is_captured: bool = false,
+};
+
+const Upvalue = struct {
+    index: u8 = 0,
+    is_local: bool = false,
 };
 
 const FunctionType = enum {
@@ -48,38 +54,81 @@ const Compiler = struct {
     type: FunctionType = .script,
     locals: [256]Local = .{Local{}} ** 256,
     local_count: u32 = 0,
+    upvalues: [256]Upvalue = .{Upvalue{}} ** 256,
     scope_depth: u32 = 0,
 
     fn init(compiler: *Compiler, ty: FunctionType) !void {
         compiler.enclosing = current;
         compiler.function = null;
         compiler.type = ty;
+        compiler.local_count = 0;
+        compiler.scope_depth = 0;
 
-        compiler.function = try ObjFunction.new();
+        var fun = try ObjFunction.new();
+        compiler.function = fun;
         if (ty != FunctionType.script) {
             compiler.function.?.name = try copyString(parser.previous.str);
         }
 
-        var local = compiler.locals[compiler.local_count];
+        //std.debug.print("{any}\n", .{compiler.function});
+
+        var local = &compiler.locals[compiler.local_count];
         compiler.local_count += 1;
         local.depth = 0;
         local.name = "";
+        local.is_captured = false;
         current = compiler;
     }
 
-    fn resolveLocal(self: *Compiler, name: []const u8) isize {
-        var i = @as(isize, self.local_count) - 1;
-        while (i >= 0) : (i -= 1) {
-            const local = &self.locals[@as(usize, @bitCast(i))];
+    fn resolveLocal(self: *Compiler, name: []const u8) ?u8 {
+        var i = self.local_count - 1;
+        while (i < std.math.maxInt(u32)) : (i -%= 1) {
+            const local = &self.locals[i];
             if (identifiersEqual(name, local.name)) {
                 if (local.depth == -1) {
                     errorPrev("Can't read local variable in its own initializer.");
                 }
-                return i;
+                return @truncate(i);
             }
         }
 
-        return -1;
+        return null;
+    }
+
+    fn resolveUpvalue(self: *Compiler, name: []const u8) ?u8 {
+        if (self.enclosing) |enclosing| {
+            if (enclosing.resolveLocal(name)) |local| {
+                enclosing.locals[local].is_captured = true;
+                return self.addUpvalue(local, true);
+            }
+
+            if (enclosing.resolveUpvalue(name)) |uv| {
+                return self.addUpvalue(uv, false);
+            }
+        }
+        return null;
+    }
+
+    fn addUpvalue(self: *Compiler, index: u8, is_local: bool) u8 {
+        const uv_count = self.function.?.upvalue_count;
+        
+        // If we have already saved this upvalue, return it
+        for (self.upvalues[0..uv_count], 0..) |*uv, i| {
+            if (uv.index == index and uv.is_local == is_local) {
+                return @truncate(i);
+            }
+        }
+
+        if (uv_count == 256) {
+            errorPrev("Too many closure variables in function.");
+            return 0;
+        }
+
+        // Otherwise we add a new one
+        self.upvalues[uv_count].is_local = is_local;
+        self.upvalues[uv_count].index = index;
+        self.function.?.upvalue_count += 1;
+        return @truncate(uv_count);
     }
 };
 
@@ -94,7 +143,7 @@ var parser = Parser{
     .panic_mode = false,
 };
 
-var current: ?*Compiler = null;
+pub var current: ?*Compiler = null;
 
 const Precendence = enum {
     NONE,
@@ -200,6 +249,7 @@ fn endCompiler() !*ObjFunction {
     try emitReturn();
     const fun = current.?.function.?;
     if ( !parser.had_error) @import("debug.zig").disassembleChunk(currentChunk(), if (fun.name) |name| name.ptr[0..name.len] else "<script>");
+    
     current = current.?.enclosing;
     return fun;
 }
@@ -212,10 +262,14 @@ fn namedVariable(name: Token, can_assign: bool) !void {
     var get_op: Op = undefined;
     var set_op: Op = undefined;
 
-    var arg: isize = current.?.resolveLocal(name.str);
-    if (arg != -1) {
+    var arg: ?u8 = current.?.resolveLocal(name.str);
+    if (arg) |_| {
         get_op = Op.GET_LOCAL;
         set_op = Op.SET_LOCAL;
+    } else if (current.?.resolveUpvalue(name.str)) |uv| {
+        arg = uv;
+        get_op = Op.GET_UPVALUE;
+        set_op = Op.SET_UPVALUE;
     } else {
         arg = try identifierConstant(&name);
         get_op = Op.GET_GLOBAL;
@@ -223,9 +277,9 @@ fn namedVariable(name: Token, can_assign: bool) !void {
     }
     if (can_assign and match(.EQUAL)) {
         try expression();
-        try emitBytes(set_op, @truncate(@as(usize, @bitCast(arg))));
+        try emitBytes(set_op, arg.?);
     } else {
-        try emitBytes(get_op, @truncate(@as(usize, @bitCast(arg))));
+        try emitBytes(get_op, arg.?);
     }
 }
 
@@ -275,6 +329,7 @@ fn patchJump(offset: usize) !void {
 }
 
 fn emitByte(byte: u8) !void {
+    ////std.debug.print("{s} {d}\n", .{parser.previous.str, parser.previous.line});
     try currentChunk().write(byte, parser.previous.line);
 }
 
@@ -314,12 +369,11 @@ fn emitLoop(loopStart: usize) !void {
 fn advance() void {
     parser.previous = parser.current;
     while (true) {
-        parser.current = scanToken() catch {
-            errorAtCurrent(parser.current.str);
-            continue;
-        };
-        break;
+        parser.current = try scanToken();
+        if (parser.current.type != .ERROR) break;
+        errorAtCurrent(parser.current.str);
     }
+    //std.debug.print("{s} {d}\n", .{parser.previous.str, parser.previous.line});
 }
 
 fn parsePrecedence(precedence: Precendence) !void {
@@ -352,9 +406,12 @@ inline fn beginScope() void {
 fn endScope() !void {
     if (current) |curr| {
         curr.scope_depth -= 1;
-        while (curr.local_count > 0 and curr.locals[curr.local_count - 1].depth > curr.scope_depth) {
-            try emitOp(Op.POP);
-            curr.local_count -= 1;
+        while (curr.local_count > 0 and curr.locals[curr.local_count - 1].depth > curr.scope_depth) : (curr.local_count -= 1) {
+            if (curr.locals[curr.local_count - 1].is_captured) {
+                try emitOp(Op.CLOSE_UPVALUE);
+            } else {
+                try emitOp(Op.POP);
+            }
         }
     } else unreachable;
 }
@@ -574,6 +631,7 @@ fn addLocal(name: []const u8) void {
         curr.local_count += 1;
         local.name = name;
         local.depth = -1;
+        local.is_captured = false;
     } else unreachable;
 }
 
@@ -612,7 +670,6 @@ fn or_(_: bool) !void {
 
 fn call(_: bool) !void {
     const arg_count = try argumentList();
-    std.debug.print("{d}\n", .{arg_count});
     try emitBytes(Op.CALL, arg_count);
 }
 
@@ -631,10 +688,6 @@ fn argumentList() !u8 {
         }
     }
     consume(.RIGHT_PAREN, "Expect ')' after arguments.");
-    std.debug.print("hefAHwek", .{});
-    object.printObject(@ptrCast(current.?.function.?));
-    std.debug.print(" {d}\n", .{arg_count});
-    //std.debug.print("{s}", .{});
     return arg_count;
 }
 
@@ -672,7 +725,13 @@ fn function(ty: FunctionType) !void {
     consume(.LEFT_BRACE, "Expect '{' before function body.");
     block();
     const fun = try endCompiler();
-    try emitBytes(.CONSTANT, try makeConstant(Value.obj(fun)));
+    //object.printObject(@ptrCast(fun));
+    try emitBytes(.CLOSURE, try makeConstant(Value.obj(fun)));
+    //std.debug.print("{d}\n", .{fun.upvalue_count});
+    for (compiler.upvalues[0..fun.upvalue_count]) |uv| {
+        try emitByte(if (uv.is_local) 1 else 0);
+        try emitByte(uv.index);
+    }
 }
 
 fn funDeclaration() !void {
