@@ -7,25 +7,25 @@ const chunks = @import("chunk.zig");
 const Chunk = chunks.Chunk;
 const Op = chunks.Op;
 const printValue = @import("value.zig").printValue;
+const stderr = std.io.getStdErr().writer();
 
 pub fn disassembleChunk(chunk: *Chunk, name: []const u8) void {
     std.debug.print("== {s} ==\n", .{name});
     var i: usize = 0;
-    var line: usize = 1;
+    var last: usize = i;
     while (i < chunk.code.count) {
-        i = disassembleInstruction(chunk, i, &line);
+        const new = disassembleInstruction(chunk, i, last);
+        last = i;
+        i = new;
     }
 }
 
-pub fn disassembleInstruction(chunk: *Chunk, offset: usize, last_line: *usize) usize {
+pub fn disassembleInstruction(chunk: *Chunk, offset: usize, last_offset: usize) usize {
     print("{d:0>4} ", .{offset});
-    // TODO: Fix this
-    //const line = chunk.getLine(offset);
-    const line = chunk.lines.items[offset];
-    if (offset > 0 and line == last_line.*) {
+    const line = chunk.getLine(offset);
+    if (offset > 0 and line == chunk.getLine(last_offset)) {
         print("   | ", .{});
     } else {
-        last_line.* = line;
         print("{d: >4} ", .{line});
     }
     //print("\n{any}\n", .{chunk.lines.items[0..line]});
@@ -64,7 +64,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize, last_line: *usize) u
             const constant = chunk.code.items[os];
             os += 1;
             print("{s: <16} {d:>4} ", .{ "OP_CLOSURE", constant });
-            printValue(chunk.constants.items[constant]);
+            printValue(chunk.constants.items[constant], stderr) catch {};
             print("\n", .{});
 
             const fun = @as(*ObjFunction, @ptrCast(chunk.constants.items[constant].obj));
@@ -73,7 +73,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize, last_line: *usize) u
                 os += 1;
                 const index = chunk.code.items[os];
                 os += 1;
-                print("{d:0>4}      |                     {s} {d}\n", .{offset - 2, if (is_local) "local" else "upvalue", index});
+                print("{d:0>4}      |                     {s} {d}\n", .{os - 2, if (is_local) "local" else "upvalue", index});
             }
 
             return os;
@@ -90,7 +90,7 @@ fn constantInstruction(name: []const u8, chunk: *Chunk, offset: usize) usize {
     const constant = chunk.code.items[offset + 1];
     const value = chunk.constants.items[@as(usize, constant)];
     print("{s: <16} {d:>4} '", .{ name, constant });
-    @import("value.zig").printValue(value);
+    printValue(value, stderr) catch {};
     print("'\n", .{});
     return offset + 2;
 }

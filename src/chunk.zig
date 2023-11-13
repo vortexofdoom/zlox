@@ -38,10 +38,15 @@ pub const Op = enum(u8) {
 
 var alloc: std.mem.Allocator = undefined;
 
+const Line = packed struct(u32) {
+    line: u16,
+    count: u16,
+};
+
 pub const Chunk = extern struct {
     const Self = @This();
     code: ArrayList(u8),
-    lines: ArrayList(usize),
+    lines: ArrayList(Line),
     constants: ArrayList(Value),
 
     pub inline fn count(self: *Chunk) usize {
@@ -51,7 +56,7 @@ pub const Chunk = extern struct {
     pub fn init(self: *Self, allocator: std.mem.Allocator) void {
         alloc = allocator;
         self.code = ArrayList(u8).init(alloc);
-        self.lines = ArrayList(usize).init(alloc);
+        self.lines = ArrayList(Line).init(alloc);
         self.constants = ArrayList(Value).init(alloc);
     }
 
@@ -62,38 +67,34 @@ pub const Chunk = extern struct {
     }
 
     pub fn write(self: *Self, byte: u8, line: usize) !void {
-        // TODO: Fix this
-        try self.lines.append(line);
-        // while (self.lines.count < line - 1) {
-        //     try self.lines.append(0);
-        // }
-        // if (self.count() >= line) {
-        //     self.lines.items[line - 1] += 1;
-        // } else {
-        //     try self.lines.append(1);
-        // }
-        // std.debug.print("adding to line {d}: {any}\n", .{line, self.lines.items[0..self.lines.count]});
+        if (self.lines.count > 0 and self.lines.items[self.lines.count - 1].line >= line) {
+            for (0..self.lines.count) |i| {
+                var entry = &self.lines.items[i];
+                if (entry.line == line) {
+                    entry.count += 1;
+                    break;
+                }
+            }
+        } else try self.lines.append(Line{ .line = @truncate(line), .count = 1 });
         
+        // std.debug.print("Inserting byte at line {d}\n    {c} ", .{ line, '{' });
+        // for (self.lines.items[0..self.lines.count], 0..) |entry, i| {
+        //     std.debug.print("(line {d}: {d}){s}", .{entry.line, entry.count, if (i < self.lines.count - 1) ", " else " }\n" });
+        // }
+
         try self.code.append(byte);
     }
 
     pub fn getLine(self: *Self, offset: usize) usize {
-        var curr: usize = 0;
+        if (self.lines.count == 0) return 0;
         var total: usize = 0;
         for (self.lines.items[0..self.lines.count]) |line| {
-            // for (0..line) |_| {
-            //     std.debug.print("{d}", .{line});
-            // }
-            // if (line != 0) std.debug.print("\n", .{});
-            total += line;
+            total += line.count;
             if (total > offset) {
-                break;
+                return line.line;
             }
-            curr += 1;
-        }
+        } else return 0;
         // may want to allow this to error if the offset is too big
-        //std.debug.print("\n{any}\n", .{self.lines.items[0..curr + 1]});
-        return curr + 1;
     }
 
     pub fn addConstant(self: *Self, value: Value) !u8 {

@@ -18,6 +18,7 @@ const ObjClosure = object.ObjClosure;
 const ObjUpvalue = object.ObjUpvalue;
 const ClosedUpvalue = object.ClosedUpvalue;
 const copyString = object.copyString;
+const stdout = std.io.getStdOut().writer();
 
 const DEBUG_TRACE_EXECUTION: bool = false;
 
@@ -360,8 +361,12 @@ pub fn run() !void {
                 }
             },
             .PRINT => {
-                printValue(pop());
-                std.debug.print("\n", .{});
+                printValue(pop(), stdout) catch {
+                    return runtimeError("Error printing to stdout.", .{});
+                };
+                stdout.print("\n", .{}) catch {
+                    return runtimeError("Error printing to stdout.", .{});
+                };
             },
             .JUMP => {
                 const jump = frame.readShort();

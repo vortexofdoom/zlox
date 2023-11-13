@@ -58,11 +58,11 @@ pub const Value = union(ValueType) {
     }
 };
 
-pub fn printValue(val: Value) void {
+pub fn printValue(val: Value, comptime writer: anytype) !void {
     switch (val) {
-        .number => |n| std.debug.print("{d}", .{n}),
-        .nil => std.debug.print("nil", .{}),
-        .bool => |b| std.debug.print("{any}", .{b}),
-        .obj => |o| object.printObject(o),
+        .number => |n| try writer.print("{d}", .{n}),
+        .nil => try writer.print("nil", .{}),
+        .bool => |b| try writer.print("{any}", .{b}),
+        .obj => |o| try object.printObject(o, writer),
     }
 }

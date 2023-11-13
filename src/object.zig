@@ -233,25 +233,25 @@ fn hashString(key: []const u8) u32 {
     return hash;
 }
 
-pub fn printObject(obj: *Obj) void {
+pub fn printObject(obj: *Obj, comptime writer: anytype) !void {
     switch (obj.type) {
         .CLOSURE => {
-            printObject(@ptrCast(@as(*ObjClosure, @ptrCast(@alignCast(obj))).function));
+            try printObject(@ptrCast(@as(*ObjClosure, @ptrCast(@alignCast(obj))).function), writer);
         },
         .FUNCTION => {
             const fun = @as(*ObjFunction, @ptrCast(@alignCast(obj)));
             if (fun.name) |name| {
-                std.debug.print("<fn {s}>", .{name.ptr[0..name.len]});
+                try writer.print("<fn {s}>", .{name.ptr[0..name.len]});
             } else {
-                std.debug.print("<script>", .{});
+                try writer.print("<script>", .{});
             }
         },
-        .NATIVE => std.debug.print("<native fn>", .{}),
+        .NATIVE => try writer.print("<native fn>", .{}),
         .STRING => {
             const str = @as(*ObjString, @ptrCast(@alignCast(obj)));
-            std.debug.print("{s}", .{str.ptr[0..str.len]});
+            try writer.print("{s}", .{str.ptr[0..str.len]});
         },
-        .UPVALUE => std.debug.print("upvalue", .{}),
+        .UPVALUE => try writer.print("upvalue", .{}),
     }
 }
 

@@ -725,9 +725,10 @@ fn function(ty: FunctionType) !void {
     consume(.LEFT_BRACE, "Expect '{' before function body.");
     block();
     const fun = try endCompiler();
-    //object.printObject(@ptrCast(fun));
+
     try emitBytes(.CLOSURE, try makeConstant(Value.obj(fun)));
-    //std.debug.print("{d}\n", .{fun.upvalue_count});
+
+    // enumerate upvalues
     for (compiler.upvalues[0..fun.upvalue_count]) |uv| {
         try emitByte(if (uv.is_local) 1 else 0);
         try emitByte(uv.index);
@@ -773,7 +774,6 @@ pub fn compile(source: []const u8) !*ObjFunction {
     advance();
 
     while (!match(.EOF)) {
-        //std.debug.print("hi", .{});
         declaration() catch {
             synchronize();
             //return InterpretError.CompileError;
@@ -789,7 +789,6 @@ pub fn compile(source: []const u8) !*ObjFunction {
 
 fn match(tt: TT) bool {
     if (!check(tt)) return false;
-    //std.debug.print("hi", .{});
     advance();
     return true;
 }
