@@ -12,12 +12,13 @@ const vm = @import("vm.zig");
 pub var allocator = undefined;
 
 pub const DEBUG_LOG_GC = true;
-pub const DEBUG_STRESS_GC = true;
+pub const DEBUG_STRESS_GC = false;
+const GC_HEAP_GROW_FACTOR = 2;
 
 pub const GcAllocator = struct {
     const Self = @This();
-    run_gc: bool = false,
     bytes_allocated: usize = 0,
+    next_gc: usize = 1024 * 1024,
     gray_stack: std.ArrayList(?*Obj),
     internal_allocator: std.mem.Allocator,
 
@@ -40,7 +41,9 @@ pub const GcAllocator = struct {
     fn allocGC(ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
         const self: *GcAllocator = @ptrCast(@alignCast(ctx));
         if (comptime DEBUG_STRESS_GC) self.collect();
+        if (self.bytes_allocated > self.next_gc) self.collect();
         if (self.internal_allocator.rawAlloc(len, ptr_align, ret_addr)) |bytes| {
+            //std.debug.print("old: {d}, delta: {d} new: {d}\n", .{self.bytes_allocated, len, self.bytes_allocated +% len});
             self.bytes_allocated += len;
             return bytes;
         } else return null;
@@ -49,8 +52,9 @@ pub const GcAllocator = struct {
     fn resizeGC(ctx: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
         const self: *Self = @ptrCast(@alignCast(ctx));
         if (comptime DEBUG_STRESS_GC) self.collect();
-        //if (new_len > buf.len) self.run_gc = true;
+        if (self.bytes_allocated > self.next_gc) self.collect();
         const delta = new_len -% buf.len; // @as(isize, @bitCast(new_len)) - @as(isize, @bitCast(buf.len));
+        //std.debug.print("old: {d}, delta: {d} new: {d}\n", .{self.bytes_allocated, delta, self.bytes_allocated +% delta});
         self.bytes_allocated +%= delta;
         return self.internal_allocator.rawResize(buf, buf_align, new_len, ret_addr);
     }
@@ -58,6 +62,7 @@ pub const GcAllocator = struct {
     fn freeGC(ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void {
         const self: *Self = @ptrCast(@alignCast(ctx));
         self.bytes_allocated -= buf.len;
+        //std.debug.print("old: {d}, delta: {d} new: {d}\n", .{self.bytes_allocated, buf.len, self.bytes_allocated - buf.len});
         self.internal_allocator.rawFree(buf, buf_align, ret_addr);
     }
 
@@ -92,8 +97,7 @@ pub const GcAllocator = struct {
         Self.sweep();
 
         self.gray_stack.deinit();
-
-        self.run_gc = false;
+        self.next_gc = self.bytes_allocated * GC_HEAP_GROW_FACTOR;
         if (comptime DEBUG_LOG_GC) {
             std.debug.print("-- gc end\n", .{});
         }
