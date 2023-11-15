@@ -11,13 +11,15 @@ const Value = value.Value;
 const printValue = value.printValue;
 const print = std.debug.print;
 const compile = @import("compiler.zig").compile;
-const ObjFunction = object.ObjFunction;
+const ClosedUpvalue = object.ClosedUpvalue;
 const NativeFn = object.NativeFn;
-const ObjNative = object.ObjNative;
+const ObjClass = object.ObjClass;
 const ObjClosure = object.ObjClosure;
+const ObjFunction = object.ObjFunction;
+const ObjInstance = object.ObjInstance;
+const ObjNative = object.ObjNative;
 const ObjString = object.ObjString;
 const ObjUpvalue = object.ObjUpvalue;
-const ClosedUpvalue = object.ClosedUpvalue;
 const copyString = object.copyString;
 const stdout = std.io.getStdOut().writer();
 
@@ -101,8 +103,8 @@ pub fn init(allocator: Allocator) !*Self {
     vm.allocator = allocator;
     resetStack();
     vm.objects = null;
-    vm.strings.init();
-    vm.globals.init();
+    try vm.strings.init();
+    try vm.globals.init();
     try defineNative("clock", clock);
     return &vm;
 }
@@ -221,6 +223,12 @@ fn callValue(callee: Value, arg_count: u8) !void {
     switch (callee) {
         .obj => |o| {
             switch (o.type) {
+                .CLASS => {
+                    const class: *ObjClass = @ptrCast(o);
+                    const instance = try ObjInstance.new(class);
+                    (vm.sp - arg_count - 1)[0] = Value.obj(instance);
+                    return;
+                },
                 .CLOSURE => return call(@as(*ObjClosure, @ptrCast(o)), arg_count),
                 .NATIVE => {
                     const native = @as(*ObjNative, @ptrCast(o)).function.?;
@@ -334,6 +342,36 @@ pub fn run() !void {
                 const slot = frame.readByte();
                 frame.closure.upvalues.items[slot].?.set(peek(0));
             },
+            .GET_PROPERTY => {
+                const maybe_instance = peek(0);
+                if (maybe_instance != .obj or maybe_instance.obj.type != .INSTANCE) {
+                    return runtimeError("Only instances have properties.", .{});
+                }
+
+                const name = frame.readString();
+                const instance: *ObjInstance = @ptrCast(maybe_instance.obj);
+                
+                if (instance.fields.get(name)) |field| {
+                    // pop the instance off the stack
+                    _ = pop();
+                    push(field);
+                } else {
+                    return runtimeError("Undefined property {s}.", .{ name.ptr[0..name.len] });
+                }
+            },
+            .SET_PROPERTY => {
+                const maybe_instance = peek(1);
+                if (maybe_instance != .obj or maybe_instance.obj.type != .INSTANCE) {
+                    return runtimeError("Only instances have properties.", .{});
+                }
+
+                const instance: *ObjInstance = @ptrCast(maybe_instance.obj);
+                _ = try instance.fields.insert(frame.readString(), peek(0));
+                const val = pop();
+                // pop the instance off the stack
+                _ = pop();
+                push(val);
+            },
             .EQUAL => push(Value{ .bool = pop().equals(pop()) }),
             .GREATER => try binaryOp(.GREATER),
             .LESS => try binaryOp(.LESS),
@@ -419,6 +457,7 @@ pub fn run() !void {
                 push(result);
                 frame = &vm.frames[vm.frame_count - 1];
             },
+            .CLASS => push(Value.obj(try ObjClass.new(frame.readString()))),
             else => return InterpretError.RuntimeError,
         }
     }

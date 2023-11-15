@@ -129,7 +129,7 @@ pub const GcAllocator = struct {
     }
 
     fn markTable(self: *GcAllocator, table: *HashMap) void {
-        for (table.entries) |entry| {
+        for (table.entries()) |entry| {
             if (entry) |e| {
                 self.markObject(@ptrCast(e.key));
                 self.markValue(e.val);
@@ -153,6 +153,10 @@ pub const GcAllocator = struct {
         }
 
         switch (obj.type) {
+            .CLASS => {
+                const class: *object.ObjClass = @ptrCast(obj);
+                self.markObject(@ptrCast(class.name));
+            },
             .CLOSURE => {
                 const closure: *object.ObjClosure = @ptrCast(obj);
                 self.markObject(@ptrCast(closure.function));
@@ -166,6 +170,10 @@ pub const GcAllocator = struct {
                 for (fun.chunk.constants.toSlice()) |val| {
                     self.markValue(val);
                 }
+            },
+            .INSTANCE => {
+                const instance: *object.ObjInstance = @ptrCast(obj);
+                self.markTable(&instance.fields);
             },
             .UPVALUE => {
                 const uv: *object.ObjUpvalue = @ptrCast(@alignCast(obj));
@@ -188,14 +196,13 @@ pub const GcAllocator = struct {
                 self.gray_stack.append(o) catch {
                     std.os.exit(1);
                 };
+                // switch (o.type) {
+                //     .NATIVE, .STRING => {},
+                //     else => self.gray_stack.append(o) catch {
+                //         std.os.exit(1);
+                //     },
+                // }
             }
-            // switch (o.type) {
-            //     .NATIVE, .STRING => {},
-            //     else => self.gray_stack.append(o) catch {
-            //         std.os.exit(1);
-            //     },
-            // }
-
         }
     }
     

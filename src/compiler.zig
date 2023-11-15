@@ -6,7 +6,6 @@ const chunk_ = @import("chunk.zig");
 const Value = @import("value.zig").Value;
 const object = @import("object.zig");
 const copyString = object.copyString;
-const allocateObject = object.allocateObject;
 const Obj = object.Obj;
 const ObjString = object.ObjString;
 const ObjFunction = object.ObjFunction;
@@ -108,7 +107,7 @@ const Compiler = struct {
 
     fn addUpvalue(self: *Compiler, index: u8, is_local: bool) u8 {
         const uv_count = self.function.?.upvalue_count;
-        
+
         // If we have already saved this upvalue, return it
         //for (0..uv_count) |i| {
         for (self.upvalues[0..uv_count], 0..) |*uv, i| {
@@ -173,7 +172,7 @@ const rules = [_]ParseRule{
     makeRule(null,      null,   .NONE), // LEFT_BRACE
     makeRule(null,      null,   .NONE), // RIGHT_BRACE
     makeRule(null,      null,   .NONE), // COMMA
-    makeRule(null,      null,   .NONE), // DOT
+    makeRule(null,      dot,   .CALL), // DOT
     makeRule(unary,     binary, .TERM), // MINUS
     makeRule(null,      binary, .TERM), // PLUS
     makeRule(null,      null,   .NONE), // SEMICOLON
@@ -247,8 +246,8 @@ fn consume(ty: TT, msg: []const u8) void {
 fn endCompiler() !*ObjFunction {
     try emitReturn();
     const fun = current.?.function.?;
-    if ( !parser.had_error) @import("debug.zig").disassembleChunk(currentChunk(), if (fun.name) |name| name.ptr[0..name.len] else "<script>");
-    
+    if (!parser.had_error) @import("debug.zig").disassembleChunk(currentChunk(), if (fun.name) |name| name.ptr[0..name.len] else "<script>");
+
     current = current.?.enclosing;
     return fun;
 }
@@ -279,6 +278,17 @@ fn namedVariable(name: Token, can_assign: bool) !void {
         try emitBytes(set_op, arg.?);
     } else {
         try emitBytes(get_op, arg.?);
+    }
+}
+
+fn dot(can_assign: bool) !void {
+    consume(.IDENTIFIER, "Expect property name after '.'.");
+    const name = try identifierConstant(&parser.previous);
+    if (can_assign and match(.EQUAL)) {
+        try expression();
+        try emitBytes(Op.SET_PROPERTY, name);
+    } else {
+        try emitBytes(Op.GET_PROPERTY, name);
     }
 }
 
@@ -675,8 +685,7 @@ fn call(_: bool) !void {
 fn argumentList() !u8 {
     var arg_count: u8 = 0;
     if (!check(.RIGHT_PAREN)) {
-        while (true) 
-        {
+        while (true) {
             try expression();
             if (arg_count == 255) {
                 errorPrev("Can't have more than 255 arguments.");
@@ -734,6 +743,20 @@ fn function(ty: FunctionType) !void {
     }
 }
 
+fn classDeclaration() !void {
+    consume(.IDENTIFIER, "Expect class name.");
+    const name_constant: u8 = try identifierConstant(&parser.previous);
+    declareVariable();
+    try emitBytes(Op.CLASS, name_constant);
+    try defineVariable(name_constant);
+
+    consume(.LEFT_BRACE, "Expect '{' before class body.");
+
+    // methods
+
+    consume(.RIGHT_BRACE, "Expect '}' after class body.");
+}
+
 fn funDeclaration() !void {
     const global = try parseVariable("Expect function name.");
     markInitialized();
@@ -742,7 +765,9 @@ fn funDeclaration() !void {
 }
 
 fn declaration() !void {
-    if (match(.FUN)) {
+    if (match(.CLASS)) {
+        try classDeclaration();
+    } else if (match(.FUN)) {
         try funDeclaration();
     } else if (match(.VAR)) {
         try varDeclaration(); // catch synchronize();

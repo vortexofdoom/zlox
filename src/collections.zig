@@ -66,36 +66,45 @@ pub fn ArrayList(comptime T: type) type {
 }
 
 const Entry = struct {
-    key: ?*ObjString,
-    val: Value,
+    key: ?*ObjString = null,
+    val: Value = Value.Nil,
 };
 
-pub const HashMap = struct {
+pub const HashMap = extern struct {
     count: usize,
-    allocator: Allocator,
-    entries: []?Entry,
+    capacity: usize,
+    ptr: [*]?Entry,
 
-    pub fn init(self: *HashMap) void {
-        self.allocator = vm.vm.allocator;
+    //pub var allocator: Allocator = vm.vm.allocator;
+
+    pub fn init(self: *HashMap) !void {
+        allocator = vm.vm.allocator;
         self.count = 0;
-        self.entries = &.{};
+        self.capacity = 0;
+        // should never fail?
+        var slice = try allocator.alloc(?Entry, 0);
+        self.ptr = slice.ptr;
     }
 
     pub fn free(self: *HashMap) void {
-        self.allocator.free(self.entries);
-        self.init();
+        allocator.free(self.entries());
+        self.init() catch {};
+    }
+
+    pub fn entries(self: *HashMap) []?Entry {
+        return self.ptr[0..self.capacity];
     }
 
     pub fn get(self: *HashMap, key: *ObjString) ?Value {
         if (self.count == 0) return null;
-        if (findEntry(self.entries, key).*) |entry| {
+        if (findEntry(self.entries(), key).*) |entry| {
             if (entry.key) |_| return entry.val;
         }
         return null;
     }
 
     pub fn clearUnmarked(self: *HashMap) void {
-        for (self.entries) |entry| {
+        for (self.entries()) |entry| {
             if (entry) |e| {
                 if (e.key) |k| {
                     if (!k.obj.is_marked) _ = self.delete(k);
@@ -105,11 +114,11 @@ pub const HashMap = struct {
     }
 
     pub fn insert(self: *HashMap, key: *ObjString, val: Value) !bool {
-        if (@as(f64, @floatFromInt(self.count + 1)) > @as(f64, @floatFromInt(self.entries.len)) * TABLE_MAX_LOAD) {
-            try self.adjustCapacity(growCapacity(@truncate(self.entries.len)));
+        if (@as(f64, @floatFromInt(self.count + 1)) > @as(f64, @floatFromInt(self.capacity)) * TABLE_MAX_LOAD) {
+            try self.adjustCapacity(growCapacity(@truncate(self.capacity)));
         }
 
-        var entry = findEntry(self.entries, key);
+        var entry = findEntry(self.entries(), key);
         const is_new_key = entry.* == null;
         if (is_new_key) self.count += 1;
 
@@ -122,7 +131,7 @@ pub const HashMap = struct {
     }
 
     pub fn delete(self: *HashMap, key: *ObjString) bool {
-        var entry = findEntry(self.entries, key);
+        var entry = findEntry(self.entries(), key);
         if (entry.* != null) {
             entry.*.?.key = null;
             entry.*.?.val = Value{ .bool = true };
@@ -131,25 +140,25 @@ pub const HashMap = struct {
     }
 
     pub fn copyFrom(self: *HashMap, from: *HashMap) !void {
-        for (from.entries) |entry| {
+        for (from.entries()) |entry| {
             if (entry) |e| {
-                try self.insert(e.key, e.val);
+                if (e.key) |k| try self.insert(k, e.val);
             }
         }
     }
 
     pub fn adjustCapacity(self: *HashMap, capacity: usize) !void {
-        var entries: []?Entry = try self.allocator.alloc(?Entry, capacity);
-        for (entries) |*entry| {
+        var new_entries: []?Entry = try allocator.alloc(?Entry, capacity);
+        for (new_entries) |*entry| {
             entry.* = null;
         }
 
         self.count = 0;
-        for (self.entries) |entry| {
+        for (self.entries()) |entry| {
             if (entry) |e| {
                 if (e.key) |k| {
                     self.count += 1;
-                    findEntry(entries, k).* = .{
+                    findEntry(new_entries, k).* = Entry{
                         .key = e.key,
                         .val = e.val,
                     };
@@ -157,9 +166,9 @@ pub const HashMap = struct {
             }
         }
 
-        self.allocator.free(self.entries);
-
-        self.entries = entries;
+        allocator.free(self.entries());
+        self.ptr = new_entries.ptr;
+        self.capacity = new_entries.len;
     }
 
     pub fn findString(self: *HashMap, chars: []const u8, hash: u32) ?*ObjString {
@@ -173,9 +182,9 @@ pub const HashMap = struct {
         //         }
         //     }
         // }
-        var idx = hash % self.entries.len;
-        while (true) : (idx = (idx + 1) % self.entries.len) {
-            const entry = &self.entries[idx];
+        var idx = hash % self.capacity;
+        while (true) : (idx = (idx + 1) % self.capacity) {
+            const entry = &self.entries()[idx];
             if (entry.*) |e| {
                 if (e.key) |k| {
                     if (k.len == chars.len and k.hash == hash and std.mem.order(u8, k.ptr[0..k.len], chars) == .eq) {

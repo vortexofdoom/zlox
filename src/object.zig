@@ -8,10 +8,13 @@ const ValueType = value.ValueType;
 const ArrayList = @import("collections.zig").ArrayList;
 const memory = @import("memory.zig");
 const DEBUG_LOG_GC = memory.DEBUG_LOG_GC;
+const HashMap = @import("collections.zig").HashMap;
 
 pub const ObjType = enum(u8) {
+    CLASS,
     CLOSURE,
     FUNCTION,
+    INSTANCE,
     NATIVE,
     STRING,
     UPVALUE,
@@ -22,6 +25,40 @@ pub const Obj = extern struct {
     is_marked: bool,
     next: ?*Obj,
 
+    pub fn new(comptime obj_type: ObjType, alloc: Allocator) !*Obj {
+        comptime var T: type = switch (obj_type) {
+            .CLASS => ObjClass,
+            .CLOSURE => ObjClosure,
+            .FUNCTION => ObjFunction,
+            .INSTANCE => ObjInstance,
+            .NATIVE => ObjNative,
+            .STRING => ObjString,
+            .UPVALUE => ObjUpvalue,
+        };
+
+        var mem = try alloc.create(T);
+        var obj: *Obj = @ptrCast(@alignCast(mem));
+        obj.type = obj_type;
+        obj.is_marked = false;
+        // Update the object linked list
+        obj.next = vm.vm.objects;
+        vm.vm.objects = obj;
+        if (comptime DEBUG_LOG_GC) {
+            comptime var name = switch (obj_type) {
+                .CLASS => "ObjClass",
+                .CLOSURE => "ObjClosure",
+                .FUNCTION => "ObjFunction",
+                .INSTANCE => "ObjInstance",
+                .NATIVE => "ObjNative",
+                .STRING => "ObjString",
+                .UPVALUE => "ObjUpvalue",
+            };
+            //std.debug.print("allocate {d} for {d}\n", .{@sizeOf(T), @intFromEnum(obj_type)});
+            std.debug.print("0x{x} allocate {d} for {d} ({s})\n", .{@intFromPtr(obj), @sizeOf(T), @intFromEnum(obj_type), name});
+        }
+        return obj;
+    }
+
     pub fn free(obj: *Obj) void {
         if (comptime DEBUG_LOG_GC) {
             //std.debug.print("free type {d}\n", .{@intFromEnum(obj.type)});
@@ -29,6 +66,11 @@ pub const Obj = extern struct {
         }
         const alloc = vm.vm.allocator;
         switch (obj.type) {
+            .CLASS => {
+                const class: *ObjClass = @ptrCast(@alignCast(obj));
+                class.methods.free();
+                alloc.destroy(class);
+            },
             .CLOSURE => {
                 const closure: *ObjClosure = @ptrCast(@alignCast(obj));
                 closure.upvalues.deinit();
@@ -38,6 +80,11 @@ pub const Obj = extern struct {
                 var fun: *ObjFunction = @ptrCast(@alignCast(obj));
                 fun.chunk.deinit();
                 alloc.destroy(fun);
+            },
+            .INSTANCE => {
+                var instance: *ObjInstance = @ptrCast(obj);
+                instance.fields.free();
+                alloc.destroy(instance);
             },
             .NATIVE => {
                 var native: *ObjNative = @ptrCast(@alignCast(obj));
@@ -60,51 +107,16 @@ pub const Obj = extern struct {
     }
 };
 
-pub const ObjString = extern struct {
+pub const ObjClass = extern struct {
     obj: Obj,
-    len: usize,
-    ptr: [*]u8,
-    hash: u32,
+    name: *ObjString,
+    methods: HashMap,
 
-    pub fn new(chars: []u8, hash: u32) !*ObjString {
-        var str: *ObjString = @ptrCast(@alignCast(try allocateObject(ObjType.STRING, vm.vm.allocator)));
-        str.ptr = chars.ptr;
-        str.len = chars.len;
-        str.hash = hash;
-        vm.push(Value.obj(@ptrCast(str)));
-        _ = try vm.vm.strings.insert(str, Value.Nil);
-        _ = vm.pop();
-        return str;
-    }
-};
-
-pub const ObjFunction = extern struct {
-    obj: Obj,
-    arity: u8 = 0,
-    upvalue_count: u16 = 0,
-    chunk: Chunk,
-    name: ?*ObjString = null,
-
-    pub fn new() !*ObjFunction {
-        var fun: *ObjFunction = @ptrCast(@alignCast(try allocateObject(.FUNCTION, vm.vm.allocator)));
-        fun.name = null;
-        fun.arity = 0;
-        fun.upvalue_count = 0;
-        fun.chunk.init(vm.vm.allocator);
-        return fun;
-    }
-};
-
-pub const NativeFn = ?*const fn ([]Value) anyerror!Value;
-
-pub const ObjNative = extern struct {
-    obj: Obj,
-    function: NativeFn,
-
-    pub fn new(fun: NativeFn) !*ObjNative {
-        var native: *ObjNative = @ptrCast(@alignCast(try allocateObject(.NATIVE, vm.vm.allocator)));
-        native.function = fun;
-        return native;
+    pub fn new(name: *ObjString) !*ObjClass {
+        var class: *ObjClass =  @ptrCast(try Obj.new(.CLASS, vm.vm.allocator));
+        class.name = name;
+        try class.methods.init();
+        return class;
     }
 };
 
@@ -119,11 +131,72 @@ pub const ObjClosure = extern struct {
             uv.* = null;
         }
 
-        var closure: *ObjClosure = @ptrCast(@alignCast(try allocateObject(.CLOSURE, vm.vm.allocator)));
+        var closure: *ObjClosure = @ptrCast(@alignCast(try Obj.new(.CLOSURE, vm.vm.allocator)));
         closure.function = fun;
         closure.upvalues = upvalues;
         closure.upvalues.count = fun.upvalue_count;
         return closure;
+    }
+};
+
+pub const ObjFunction = extern struct {
+    obj: Obj,
+    arity: u8 = 0,
+    upvalue_count: u16 = 0,
+    chunk: Chunk,
+    name: ?*ObjString = null,
+
+    pub fn new() !*ObjFunction {
+        var fun: *ObjFunction = @ptrCast(@alignCast(try Obj.new(.FUNCTION, vm.vm.allocator)));
+        fun.name = null;
+        fun.arity = 0;
+        fun.upvalue_count = 0;
+        fun.chunk.init(vm.vm.allocator);
+        return fun;
+    }
+};
+
+pub const ObjInstance = extern struct {
+    obj: Obj,
+    class: *ObjClass,
+    fields: HashMap,
+
+    pub fn new(class: *ObjClass) !*ObjInstance {
+        var instance: *ObjInstance = @ptrCast(@alignCast(try Obj.new(.INSTANCE, vm.vm.allocator)));
+        try instance.fields.init();
+        instance.class = class;
+        return instance;
+    }
+};
+
+pub const ObjString = extern struct {
+    obj: Obj,
+    len: usize,
+    ptr: [*]u8,
+    hash: u32,
+
+    pub fn new(chars: []u8, hash: u32) !*ObjString {
+        var str: *ObjString = @ptrCast(@alignCast(try Obj.new(ObjType.STRING, vm.vm.allocator)));
+        str.ptr = chars.ptr;
+        str.len = chars.len;
+        str.hash = hash;
+        vm.push(Value.obj(@ptrCast(str)));
+        _ = try vm.vm.strings.insert(str, Value.Nil);
+        _ = vm.pop();
+        return str;
+    }
+};
+
+pub const NativeFn = ?*const fn ([]Value) anyerror!Value;
+
+pub const ObjNative = extern struct {
+    obj: Obj,
+    function: NativeFn,
+
+    pub fn new(fun: NativeFn) !*ObjNative {
+        var native: *ObjNative = @ptrCast(@alignCast(try Obj.new(.NATIVE, vm.vm.allocator)));
+        native.function = fun;
+        return native;
     }
 };
 
@@ -216,7 +289,7 @@ pub const ObjUpvalue = extern struct {
     next: ?*ObjUpvalue,
 
     pub fn new(slot: *Value) !*ObjUpvalue {
-        var uv: *ObjUpvalue = @ptrCast(@alignCast(try allocateObject(.UPVALUE, vm.vm.allocator)));
+        var uv: *ObjUpvalue = @ptrCast(@alignCast(try Obj.new(.UPVALUE, vm.vm.allocator)));
         uv.uv.closed = false;
         uv.uv.value.open = slot;
         uv.next = null;
@@ -247,6 +320,10 @@ fn hashString(key: []const u8) u32 {
 
 pub fn printObject(obj: *Obj, comptime writer: anytype) !void {
     switch (obj.type) {
+        .CLASS => {
+            const class = @as(*ObjClass, @ptrCast(@alignCast(obj)));
+            try writer.print("{s}", .{class.name.ptr[0..class.name.len]});
+        },
         .CLOSURE => {
             try printObject(@ptrCast(@as(*ObjClosure, @ptrCast(@alignCast(obj))).function), writer);
         },
@@ -257,6 +334,10 @@ pub fn printObject(obj: *Obj, comptime writer: anytype) !void {
             } else {
                 try writer.print("<script>", .{});
             }
+        },
+        .INSTANCE => {
+            const instance = @as(*ObjInstance, @ptrCast(@alignCast(obj)));
+            try writer.print("{s} instance", .{instance.class.name.ptr[0..instance.class.name.len]});
         },
         .NATIVE => try writer.print("<native fn>", .{}),
         .STRING => {
@@ -281,34 +362,4 @@ pub fn copyString(chars: []const u8) !*ObjString {
     var str = try vm.vm.allocator.alloc(u8, chars.len);
     @memcpy(str, chars);
     return ObjString.new(str, hash);
-}
-
-pub inline fn allocateObject(comptime obj_type: ObjType, alloc: Allocator) !*Obj {
-    comptime var T: type = switch (obj_type) {
-        .CLOSURE => ObjClosure,
-        .FUNCTION => ObjFunction,
-        .NATIVE => ObjNative,
-        .STRING => ObjString,
-        .UPVALUE => ObjUpvalue,
-    };
-
-    var mem = try alloc.create(T);
-    var obj: *Obj = @ptrCast(@alignCast(mem));
-    obj.type = obj_type;
-    obj.is_marked = false;
-    // Update the object linked list
-    obj.next = vm.vm.objects;
-    vm.vm.objects = obj;
-    if (comptime DEBUG_LOG_GC) {
-        comptime var name = switch (obj_type) {
-            .CLOSURE => "ObjClosure",
-            .FUNCTION => "ObjFunction",
-            .NATIVE => "ObjNative",
-            .STRING => "ObjString",
-            .UPVALUE => "ObjUpvalue",
-        };
-        //std.debug.print("allocate {d} for {d}\n", .{@sizeOf(T), @intFromEnum(obj_type)});
-        std.debug.print("0x{x} allocate {d} for {d} ({s})\n", .{@intFromPtr(obj), @sizeOf(T), @intFromEnum(obj_type), name});
-    }
-    return obj;
 }
