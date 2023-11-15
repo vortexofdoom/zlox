@@ -15,12 +15,13 @@ const ObjFunction = object.ObjFunction;
 const NativeFn = object.NativeFn;
 const ObjNative = object.ObjNative;
 const ObjClosure = object.ObjClosure;
+const ObjString = object.ObjString;
 const ObjUpvalue = object.ObjUpvalue;
 const ClosedUpvalue = object.ClosedUpvalue;
 const copyString = object.copyString;
 const stdout = std.io.getStdOut().writer();
 
-const DEBUG_TRACE_EXECUTION: bool = false;
+const DEBUG_TRACE_EXECUTION: bool = true;
 
 const FRAMES_MAX = 64;
 const STACK_MAX = 256 * FRAMES_MAX;
@@ -154,12 +155,12 @@ pub fn interpret(source: []const u8) !void {
     run() catch {};
 }
 
-inline fn push(val: Value) void {
+pub inline fn push(val: Value) void {
     vm.sp[0] = val;
     vm.sp += 1;
 }
 
-inline fn pop() Value {
+pub inline fn pop() Value {
     vm.sp -= 1;
     return vm.sp[0];
 }
@@ -189,13 +190,15 @@ inline fn peek(distance: usize) Value {
 }
 
 fn concatenate() !void {
-    const r = pop().obj.asString();
-    const l = pop().obj.asString();
+    const r = peek(0).obj.asString();
+    const l = peek(1).obj.asString();
     const len = l.len + r.len;
     var chars = try vm.allocator.alloc(u8, len);
     @memcpy(chars[0..l.len], l.ptr[0..l.len]);
     @memcpy(chars[l.len..len], r.ptr[0..r.len]);
     push(Value.obj(try object.takeString(chars)));
+    _ = pop();
+    _ = pop();
 }
 
 fn call(closure: *ObjClosure, arg_count: u8) InterpretError!void {
@@ -271,6 +274,7 @@ fn closeUpvalues(last: *Value) void {
 
 pub fn run() !void {
     var frame = &vm.frames[vm.frame_count - 1];
+    var offset: usize  = 0;
     while (true) {
         if (comptime DEBUG_TRACE_EXECUTION) {
             std.debug.print("          ", .{});
@@ -278,11 +282,11 @@ pub fn run() !void {
             //for (self.stack[0..@intFromPtr(self.sp) - @intFromPtr(&self.stack)]) |slot| {
             while (@intFromPtr(slot) < @intFromPtr(vm.sp)) : (slot += 1) {
                 std.debug.print("[ ", .{});
-                printValue(slot[0]);
+                try printValue(slot[0], std.io.getStdErr().writer());
                 std.debug.print(" ]", .{});
             }
             std.debug.print("\n", .{});
-            _ = @import("debug.zig").disassembleInstruction(&frame.closure.function.chunk, @intFromPtr(frame.ip - @intFromPtr(frame.closure.function.chunk.code.items)));
+            offset = @import("debug.zig").disassembleInstruction(&frame.closure.function.chunk, @intFromPtr(frame.ip - @intFromPtr(frame.closure.function.chunk.code.items)), offset);
         }
 
         const byte = @as(Op, @enumFromInt(frame.readByte()));

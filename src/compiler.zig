@@ -66,18 +66,15 @@ const Compiler = struct {
 
         var fun = try ObjFunction.new();
         compiler.function = fun;
+        current = compiler;
         if (ty != FunctionType.script) {
             compiler.function.?.name = try copyString(parser.previous.str);
         }
-
-        //std.debug.print("{any}\n", .{compiler.function});
-
         var local = &compiler.locals[compiler.local_count];
         compiler.local_count += 1;
         local.depth = 0;
         local.name = "";
         local.is_captured = false;
-        current = compiler;
     }
 
     fn resolveLocal(self: *Compiler, name: []const u8) ?u8 {
@@ -113,7 +110,9 @@ const Compiler = struct {
         const uv_count = self.function.?.upvalue_count;
         
         // If we have already saved this upvalue, return it
+        //for (0..uv_count) |i| {
         for (self.upvalues[0..uv_count], 0..) |*uv, i| {
+            //const uv = &self.upvalues[i];
             if (uv.index == index and uv.is_local == is_local) {
                 return @truncate(i);
             }

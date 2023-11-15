@@ -44,6 +44,7 @@ pub fn ArrayList(comptime T: type) type {
                 const old_cap = self.capacity;
                 self.capacity = growCapacity(self.capacity);
                 self.items = (try allocator.realloc(self.items[0..old_cap], self.capacity)).ptr;
+                //std.debug.print("0x{x} allocate {d} for ArrayList({any})\n", .{@intFromPtr(self), self.capacity - old_cap, T});
                 //std.debug.print("reallocating {any} array: ", .{T});
             }
 
@@ -52,10 +53,14 @@ pub fn ArrayList(comptime T: type) type {
             //std.debug.print("{any}\n", .{self.items[0..self.count]});
         }
 
-        pub fn deinit(self: Self) void {
+        pub inline fn deinit(self: Self) void {
             if (@sizeOf(T) > 0) {
                 allocator.free(self.items[0..self.capacity]);
             }
+        }
+
+        pub inline fn toSlice(self: *Self) []T {
+            return self.items[0..self.count];
         }
     };
 }
@@ -87,6 +92,16 @@ pub const HashMap = struct {
             if (entry.key) |_| return entry.val;
         }
         return null;
+    }
+
+    pub fn clearUnmarked(self: *HashMap) void {
+        for (self.entries) |entry| {
+            if (entry) |e| {
+                if (e.key) |k| {
+                    if (!k.obj.is_marked) _ = self.delete(k);
+                }
+            }
+        }
     }
 
     pub fn insert(self: *HashMap, key: *ObjString, val: Value) !bool {
@@ -149,6 +164,15 @@ pub const HashMap = struct {
 
     pub fn findString(self: *HashMap, chars: []const u8, hash: u32) ?*ObjString {
         if (self.count == 0) return null;
+        // for (self.entries[0..self.count]) |entry| {
+        //     if (entry) |e| {
+        //         if (e.key) |k| {
+        //             object.printObject(@ptrCast(k), std.io.getStdErr().writer()) catch {};
+        //             std.debug.print(", ", .{});
+        //             value.printValue(e.val, std.io.getStdErr().writer()) catch {};
+        //         }
+        //     }
+        // }
         var idx = hash % self.entries.len;
         while (true) : (idx = (idx + 1) % self.entries.len) {
             const entry = &self.entries[idx];

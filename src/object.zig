@@ -24,7 +24,8 @@ pub const Obj = extern struct {
 
     pub fn free(obj: *Obj) void {
         if (comptime DEBUG_LOG_GC) {
-            std.debug.print("{x} free type {d}\n", .{@intFromPtr(obj), @intFromEnum(obj.type)});
+            //std.debug.print("free type {d}\n", .{@intFromEnum(obj.type)});
+            std.debug.print("0x{x} free type {d}\n", .{@intFromPtr(obj), @intFromEnum(obj.type)});
         }
         const alloc = vm.vm.allocator;
         switch (obj.type) {
@@ -67,11 +68,12 @@ pub const ObjString = extern struct {
 
     pub fn new(chars: []u8, hash: u32) !*ObjString {
         var str: *ObjString = @ptrCast(@alignCast(try allocateObject(ObjType.STRING, vm.vm.allocator)));
-        const s: []u8 = @ptrCast(chars);
-        str.ptr = s.ptr;
-        str.len = s.len;
+        str.ptr = chars.ptr;
+        str.len = chars.len;
         str.hash = hash;
+        vm.push(Value.obj(@ptrCast(str)));
         _ = try vm.vm.strings.insert(str, Value.Nil);
+        _ = vm.pop();
         return str;
     }
 };
@@ -112,16 +114,24 @@ pub const ObjClosure = extern struct {
     upvalues: ArrayList(?*ObjUpvalue),
 
     pub fn new(fun: *ObjFunction) !*ObjClosure {
-        var closure: *ObjClosure = @ptrCast(@alignCast(try allocateObject(.CLOSURE, vm.vm.allocator)));
-        closure.function = fun;
-        closure.upvalues = try ArrayList(?*ObjUpvalue).initCapacity(fun.upvalue_count, vm.vm.allocator);
-        for (closure.upvalues.items[0..fun.upvalue_count]) |*uv| {
+        var upvalues = try ArrayList(?*ObjUpvalue).initCapacity(fun.upvalue_count, vm.vm.allocator);
+        for (upvalues.items[0..fun.upvalue_count]) |*uv| {
             uv.* = null;
         }
+
+        var closure: *ObjClosure = @ptrCast(@alignCast(try allocateObject(.CLOSURE, vm.vm.allocator)));
+        closure.function = fun;
+        closure.upvalues = upvalues;
         closure.upvalues.count = fun.upvalue_count;
         return closure;
     }
 };
+
+// Maybe someday
+// pub const Upvalue = extern union(enum) {
+//     open: *Value,
+//     closed: Value,
+// };
 
 const Upvalue = extern struct {
     closed: bool,
@@ -133,13 +143,32 @@ const Upvalue = extern struct {
     fn get(self: Upvalue) Value {
         return if (self.closed) self.value.closed.val() else self.value.open.*;
     }
-};
 
-// Maybe someday
-// pub const Upvalue = extern union(enum) {
-//     open: *Value,
-//     closed: Value,
-// };
+    fn set(self: *Upvalue, val: Value) void {
+        if (self.closed) {
+            switch (val) {
+                .bool => |b| {
+                    self.value.closed.tag = .bool;
+                    self.value.closed.as.bool = b;
+                },
+                .nil => {
+                    self.value.closed.tag = .nil;
+                    self.value.closed.as.nil = {};
+                },
+                .number => |n| {
+                    self.value.closed.tag = .number;
+                    self.value.closed.as.number = n;
+                },
+                .obj => |o| {
+                    self.value.closed.tag = .obj;
+                    self.value.closed.as.obj = o;
+                },
+            }
+        } else {
+            self.value.open.* = val;
+        }
+    } 
+};
 
 pub const ClosedUpvalue = extern struct {
     tag: ValueType,
@@ -194,33 +223,16 @@ pub const ObjUpvalue = extern struct {
         return uv;
     }
 
+    pub inline fn closed(self: ObjUpvalue) bool {
+        return self.uv.closed;
+    }
+
     pub inline fn get(self: *ObjUpvalue) Value {
         return self.uv.get();
     }
 
-    pub fn set(self: *ObjUpvalue, val: Value) void {
-        if (self.uv.closed) {
-            switch (val) {
-                .bool => |b| {
-                    self.uv.value.closed.tag = .bool;
-                    self.uv.value.closed.as.bool = b;
-                },
-                .nil => {
-                    self.uv.value.closed.tag = .nil;
-                    self.uv.value.closed.as.nil = {};
-                },
-                .number => |n| {
-                    self.uv.value.closed.tag = .number;
-                    self.uv.value.closed.as.number = n;
-                },
-                .obj => |o| {
-                    self.uv.value.closed.tag = .obj;
-                    self.uv.value.closed.as.obj = o;
-                },
-            }
-        } else {
-            self.uv.value.open.* = val;
-        }
+    pub inline fn set(self: *ObjUpvalue, val: Value) void {
+        self.uv.set(val);
     }
 };
 
@@ -281,7 +293,7 @@ pub inline fn allocateObject(comptime obj_type: ObjType, alloc: Allocator) !*Obj
     };
 
     var mem = try alloc.create(T);
-    var obj: *Obj = @ptrCast(mem);
+    var obj: *Obj = @ptrCast(@alignCast(mem));
     obj.type = obj_type;
     obj.is_marked = false;
     // Update the object linked list
@@ -295,7 +307,8 @@ pub inline fn allocateObject(comptime obj_type: ObjType, alloc: Allocator) !*Obj
             .STRING => "ObjString",
             .UPVALUE => "ObjUpvalue",
         };
-        std.debug.print("{x} allocate {d} for {d} ({s})\n", .{@intFromPtr(obj), @sizeOf(T), @intFromEnum(obj_type), name});
+        //std.debug.print("allocate {d} for {d}\n", .{@sizeOf(T), @intFromEnum(obj_type)});
+        std.debug.print("0x{x} allocate {d} for {d} ({s})\n", .{@intFromPtr(obj), @sizeOf(T), @intFromEnum(obj_type), name});
     }
     return obj;
 }

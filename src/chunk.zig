@@ -2,6 +2,7 @@ const std = @import("std");
 const Value = @import("value.zig").Value;
 const Error = @import("error.zig").CompileError;
 const ArrayList = @import("collections.zig").ArrayList;
+const vm = @import("vm.zig");
 
 pub const Op = enum(u8) {
     CONSTANT,
@@ -45,6 +46,8 @@ const Line = packed struct(u32) {
 
 pub const Chunk = extern struct {
     const Self = @This();
+    // TODO: Could maybe turn these back into std.ArrayListUnmanaged
+    // given that all use the same allocator
     code: ArrayList(u8),
     lines: ArrayList(Line),
     constants: ArrayList(Value),
@@ -101,7 +104,9 @@ pub const Chunk = extern struct {
         if (self.constants.count >= 256) {
             return Error.tooManyConstants;
         }
+        vm.push(value);
         try self.constants.append(value);
+        _ = vm.pop();
         return @intCast(self.constants.count - 1);
     }
 };
