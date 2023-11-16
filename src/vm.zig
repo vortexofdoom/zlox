@@ -13,6 +13,7 @@ const print = std.debug.print;
 const compile = @import("compiler.zig").compile;
 const ClosedUpvalue = object.ClosedUpvalue;
 const NativeFn = object.NativeFn;
+const ObjBoundMethod = object.ObjBoundMethod;
 const ObjClass = object.ObjClass;
 const ObjClosure = object.ObjClosure;
 const ObjFunction = object.ObjFunction;
@@ -23,7 +24,7 @@ const ObjUpvalue = object.ObjUpvalue;
 const copyString = object.copyString;
 const stdout = std.io.getStdOut().writer();
 
-const DEBUG_TRACE_EXECUTION: bool = true;
+const DEBUG_TRACE_EXECUTION: bool = false;
 
 const FRAMES_MAX = 64;
 const STACK_MAX = 256 * FRAMES_MAX;
@@ -54,6 +55,7 @@ strings: HashMap,
 
 open_upvalues: ?*ObjUpvalue,
 objects: ?*Obj,
+init_string: ?*ObjString,
 
 const Self = @This();
 pub var vm: Self = .{
@@ -65,6 +67,7 @@ pub var vm: Self = .{
     .globals = undefined,
     .open_upvalues = null,
     .objects = null,
+    .init_string = null,
 };
 
 const CallFrame = struct {
@@ -87,8 +90,8 @@ const CallFrame = struct {
         return frame.closure.function.chunk.constants.items[frame.readByte()];
     }
 
-    inline fn readString(frame: *CallFrame) *object.ObjString {
-        return @ptrCast(frame.readConstant().obj);
+    inline fn readString(frame: *CallFrame) *ObjString {
+        return frame.readConstant().obj.as(ObjString);
     }
 };
 
@@ -103,8 +106,10 @@ pub fn init(allocator: Allocator) !*Self {
     vm.allocator = allocator;
     resetStack();
     vm.objects = null;
-    try vm.strings.init();
     try vm.globals.init();
+    try vm.strings.init();
+    vm.init_string = null;
+    vm.init_string = try copyString("init");
     try defineNative("clock", clock);
     return &vm;
 }
@@ -112,11 +117,11 @@ pub fn init(allocator: Allocator) !*Self {
 pub fn deinit() void {
     vm.globals.free();
     vm.strings.free();
-    var obj = vm.objects;
-    while (obj) |o| {
-        const next = o.next;
-        o.free();
-        obj = next;
+    vm.init_string = null;
+    while (vm.objects) |obj| {
+        const next = obj.next;
+        obj.free();
+        vm.objects = next;
     }
 }
 
@@ -137,9 +142,11 @@ fn runtimeError(comptime fmt: []const u8, args: anytype) InterpretError {
 }
 
 fn defineNative(name: []const u8, function: NativeFn) !void {
-    push(Value.obj(try copyString(name)));
-    push(Value.obj(try ObjNative.new(function)));
-    _ = try vm.globals.insert(@ptrCast(@alignCast(vm.stack[0].obj)), vm.stack[1]);
+    const str = try copyString(name);
+    push(Value.obj(&str.obj));
+    const native = try ObjNative.new(function);
+    push(Value.obj(&native.obj));
+    _ = try vm.globals.insert(vm.stack[0].obj.as(ObjString), vm.stack[1]);
     _ = pop();
     _ = pop();
 }
@@ -147,11 +154,11 @@ fn defineNative(name: []const u8, function: NativeFn) !void {
 pub fn interpret(source: []const u8) !void {
     const fun = compile(source) catch return InterpretError.CompileError;
 
-    push(Value.obj(fun));
+    push(Value.obj(&fun.obj));
 
     const closure = ObjClosure.new(fun) catch return runtimeError("Out of memory.", .{});
     _ = pop();
-    push(Value.obj(closure));
+    push(Value.obj(&closure.obj));
     try call(closure, 0);
 
     run() catch {};
@@ -192,15 +199,16 @@ inline fn peek(distance: usize) Value {
 }
 
 fn concatenate() !void {
-    const r = peek(0).obj.asString();
-    const l = peek(1).obj.asString();
+    const r = peek(0).obj.as(ObjString);
+    const l = peek(1).obj.as(ObjString);
     const len = l.len + r.len;
     var chars = try vm.allocator.alloc(u8, len);
+    _ = pop();
+    _ = pop();
     @memcpy(chars[0..l.len], l.ptr[0..l.len]);
     @memcpy(chars[l.len..len], r.ptr[0..r.len]);
-    push(Value.obj(try object.takeString(chars)));
-    _ = pop();
-    _ = pop();
+    const str = try object.takeString(chars);
+    push(Value.obj(&str.obj));
 }
 
 fn call(closure: *ObjClosure, arg_count: u8) InterpretError!void {
@@ -220,50 +228,66 @@ fn call(closure: *ObjClosure, arg_count: u8) InterpretError!void {
 }
 
 fn callValue(callee: Value, arg_count: u8) !void {
-    switch (callee) {
-        .obj => |o| {
-            switch (o.type) {
-                .CLASS => {
-                    const class: *ObjClass = @ptrCast(o);
-                    const instance = try ObjInstance.new(class);
-                    (vm.sp - arg_count - 1)[0] = Value.obj(instance);
-                    return;
-                },
-                .CLOSURE => return call(@as(*ObjClosure, @ptrCast(o)), arg_count),
-                .NATIVE => {
-                    const native = @as(*ObjNative, @ptrCast(o)).function.?;
-                    const result = try native((vm.sp - arg_count)[0..arg_count]);
-                    vm.sp -= arg_count + 1;
-                    push(result);
-                    return;
-                },
-                else => {},
-            }
-        },
-        else => {},
+    if (callee == .obj) {
+        switch (callee.obj.type) {
+            .BOUND_METHOD => {
+                const bound = callee.obj.as(ObjBoundMethod);
+                (vm.sp - arg_count - 1)[0] = bound.receiver;
+                return call(bound.method, arg_count);
+            },
+            .CLASS => {
+                const class = callee.obj.as(ObjClass);
+                const instance = try ObjInstance.new(class);
+                (vm.sp - arg_count - 1)[0] = Value.obj(&instance.obj);
+                if (class.methods.get(vm.init_string.?)) |initializer| {
+                    return call(initializer.obj.as(ObjClosure), arg_count);
+                } else if (arg_count != 0) {
+                    return runtimeError("Expected 0 arguments but got {d}.", .{arg_count});
+                }
+                return;
+            },
+            .CLOSURE => return call(callee.obj.as(ObjClosure), arg_count),
+            .NATIVE => {
+                const native = callee.obj.as(ObjNative).function;
+                const result = try native((vm.sp - arg_count)[0..arg_count]);
+                vm.sp -= arg_count + 1;
+                push(result);
+                return;
+            },
+            else => {},
+        }
     }
     return runtimeError("Can only call functions and classes.", .{});
+}
+
+fn bindMethod(class: *ObjClass, name: *ObjString) !void {
+    if (class.methods.get(name)) |entry| {
+        const bound = try ObjBoundMethod.new(peek(0), entry.obj.as(ObjClosure));
+        _ = pop();
+        push(Value.obj(&bound.obj));
+    } else {
+        return runtimeError("Undefined property {s}.", .{name.ptr[0..name.len]});
+    }
 }
 
 fn captureUpvalue(local: *Value) !*ObjUpvalue {
     var prev: ?*ObjUpvalue = null;
     var upvalue = vm.open_upvalues;
 
-    while (upvalue != null and @intFromPtr(upvalue.?.uv.value.open) > @intFromPtr(local)) {
-        const curr = upvalue.?;
-        if (@subWithOverflow(@intFromPtr(curr.uv.value.open), @intFromPtr(local))[1] == 1) break;
+    while (upvalue) |curr| {
+        if (@intFromPtr(curr.open) <= @intFromPtr(local)) break;
         prev = curr;
         upvalue = curr.next;
     }
 
-    if (upvalue != null and @intFromPtr(upvalue.?.uv.value.open) == @intFromPtr(local)) {
-        return upvalue.?;
+    if (upvalue) |uv| {
+        if (@intFromPtr(uv.open) == @intFromPtr(local)) return uv;
     }
 
     var created = try ObjUpvalue.new(local);
     created.next = upvalue;
-    if (prev) |uv| {
-        uv.next = created;
+    if (prev) |p| {
+        p.next = created;
     } else {
         vm.open_upvalues = created;
     }
@@ -273,16 +297,22 @@ fn captureUpvalue(local: *Value) !*ObjUpvalue {
 
 fn closeUpvalues(last: *Value) void {
     while (vm.open_upvalues) |curr| : (vm.open_upvalues = curr.next) {
-        if (@intFromPtr(last) >= @intFromPtr(curr.uv.value.open)) break;
-        const val = curr.get();
-        curr.uv.closed = true;
-        curr.set(val);
+        if (@intFromPtr(last) >= @intFromPtr(curr.open)) break;
+        curr.closed = curr.open.*;
+        curr.open = &curr.closed;
     }
+}
+
+fn defineMethod(name: *ObjString) !void {
+    const method = peek(0);
+    var class: *ObjClass = @ptrCast(peek(1).obj);
+    _ = try class.methods.insert(name, method);
+    _ = pop();
 }
 
 pub fn run() !void {
     var frame = &vm.frames[vm.frame_count - 1];
-    var offset: usize  = 0;
+    var offset: usize = 0;
     while (true) {
         if (comptime DEBUG_TRACE_EXECUTION) {
             std.debug.print("          ", .{});
@@ -336,11 +366,11 @@ pub fn run() !void {
             },
             .GET_UPVALUE => {
                 const slot = frame.readByte();
-                push(frame.closure.upvalues.items[slot].?.get());
+                push(frame.closure.upvalues.items[slot].?.open.*);
             },
             .SET_UPVALUE => {
                 const slot = frame.readByte();
-                frame.closure.upvalues.items[slot].?.set(peek(0));
+                frame.closure.upvalues.items[slot].?.open.* = peek(0);
             },
             .GET_PROPERTY => {
                 const maybe_instance = peek(0);
@@ -350,13 +380,13 @@ pub fn run() !void {
 
                 const name = frame.readString();
                 const instance: *ObjInstance = @ptrCast(maybe_instance.obj);
-                
+
                 if (instance.fields.get(name)) |field| {
                     // pop the instance off the stack
                     _ = pop();
                     push(field);
                 } else {
-                    return runtimeError("Undefined property {s}.", .{ name.ptr[0..name.len] });
+                    try bindMethod(instance.class, name);
                 }
             },
             .SET_PROPERTY => {
@@ -365,7 +395,7 @@ pub fn run() !void {
                     return runtimeError("Only instances have properties.", .{});
                 }
 
-                const instance: *ObjInstance = @ptrCast(maybe_instance.obj);
+                const instance = maybe_instance.obj.as(ObjInstance);
                 _ = try instance.fields.insert(frame.readString(), peek(0));
                 const val = pop();
                 // pop the instance off the stack
@@ -428,9 +458,9 @@ pub fn run() !void {
                 frame = &vm.frames[vm.frame_count - 1];
             },
             .CLOSURE => {
-                const fun: *ObjFunction = @ptrCast(@alignCast(frame.readConstant().obj));
+                const fun = frame.readConstant().obj.as(ObjFunction);
                 const closure = try ObjClosure.new(fun);
-                push(Value.obj(closure));
+                push(Value.obj(&closure.obj));
                 for (0..closure.upvalues.count) |i| {
                     const is_local = frame.readByte();
                     const index = frame.readByte();
@@ -457,7 +487,11 @@ pub fn run() !void {
                 push(result);
                 frame = &vm.frames[vm.frame_count - 1];
             },
-            .CLASS => push(Value.obj(try ObjClass.new(frame.readString()))),
+            .CLASS => {
+                const name = try ObjClass.new(frame.readString());
+                push(Value.obj(&name.obj));
+            },
+            .METHOD => try defineMethod(frame.readString()),
             else => return InterpretError.RuntimeError,
         }
     }

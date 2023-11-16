@@ -17,6 +17,8 @@ const Token = Scanner.Token;
 const TT = Scanner.TokenType;
 const CompileError = @import("error.zig").CompileError;
 
+const DEBUG_WRITE_CODE = false;
+
 const Parser = struct {
     current: Token,
     previous: Token,
@@ -33,8 +35,8 @@ const ParseRule = struct {
 
 const Local = struct {
     name: []const u8 = "",
-    depth: isize = -1,
     is_captured: bool = false,
+    depth: isize = -1,
 };
 
 const Upvalue = struct {
@@ -44,6 +46,8 @@ const Upvalue = struct {
 
 const FunctionType = enum {
     function,
+    initializer,
+    method,
     script,
 };
 
@@ -72,8 +76,9 @@ const Compiler = struct {
         var local = &compiler.locals[compiler.local_count];
         compiler.local_count += 1;
         local.depth = 0;
-        local.name = "";
-        local.is_captured = false;
+        if (ty != .function) {
+            local.name = "this";
+        }
     }
 
     fn resolveLocal(self: *Compiler, name: []const u8) ?u8 {
@@ -130,6 +135,10 @@ const Compiler = struct {
     }
 };
 
+const ClassCompiler = struct {
+    enclosing: ?*ClassCompiler,
+};
+
 fn currentChunk() *Chunk {
     return &current.?.function.?.chunk;
 }
@@ -142,6 +151,7 @@ var parser = Parser{
 };
 
 pub var current: ?*Compiler = null;
+pub var current_class: ?*ClassCompiler = null;
 
 const Precendence = enum {
     NONE,
@@ -201,7 +211,7 @@ const rules = [_]ParseRule{
     makeRule(null,      null,   .NONE), // PRINT
     makeRule(null,      null,   .NONE), // RETURN
     makeRule(null,      null,   .NONE), // SUPER
-    makeRule(null,      null,   .NONE), // THIS
+    makeRule(this,      null,   .NONE), // THIS
     makeRule(literal,   null,   .NONE), // TRUE
     makeRule(null,      null,   .NONE), // VAR
     makeRule(null,      null,   .NONE), // WHILE
@@ -246,7 +256,7 @@ fn consume(ty: TT, msg: []const u8) void {
 fn endCompiler() !*ObjFunction {
     try emitReturn();
     const fun = current.?.function.?;
-    if (!parser.had_error) @import("debug.zig").disassembleChunk(currentChunk(), if (fun.name) |name| name.ptr[0..name.len] else "<script>");
+    if (comptime DEBUG_WRITE_CODE and !parser.had_error) @import("debug.zig").disassembleChunk(currentChunk(), if (fun.name) |name| name.ptr[0..name.len] else "<script>");
 
     current = current.?.enclosing;
     return fun;
@@ -293,7 +303,7 @@ fn dot(can_assign: bool) !void {
 }
 
 fn string(_: bool) !void {
-    try emitConstant(Value.obj(try copyString(parser.previous.str[1 .. parser.previous.str.len - 1])));
+    try emitConstant(Value.obj(&(try copyString(parser.previous.str[1 .. parser.previous.str.len - 1])).obj));
 }
 
 fn literal(_: bool) !void {
@@ -352,7 +362,12 @@ inline fn emitBytes(byte1: Op, byte2: u8) !void {
 }
 
 inline fn emitReturn() !void {
-    try emitOp(Op.NIL);
+    if (current.?.type == .initializer) {
+        try emitBytes(.GET_LOCAL, 0);
+    } else {
+        try emitOp(Op.NIL);
+    }
+
     try emitOp(.RETURN);
 }
 
@@ -509,6 +524,9 @@ fn returnStatement() !void {
     if (match(.SEMICOLON)) {
         try emitReturn();
     } else {
+        if (current.?.type == .initializer) {
+            errorPrev("Can't return an explicit value from an initializer.");
+        }
         try expression();
         consume(.SEMICOLON, "Expect ';' after return value.");
         try emitOp(.RETURN);
@@ -606,7 +624,7 @@ fn forStatement() !void {
 }
 
 fn identifierConstant(name: *const Token) !u8 {
-    return makeConstant(Value.obj(try copyString(name.str)));
+    return makeConstant(Value.obj(&(try copyString(name.str)).obj));
 }
 
 fn parseVariable(msg: []const u8) !u8 {
@@ -734,7 +752,7 @@ fn function(ty: FunctionType) !void {
     block();
     const fun = try endCompiler();
 
-    try emitBytes(.CLOSURE, try makeConstant(Value.obj(fun)));
+    try emitBytes(.CLOSURE, try makeConstant(Value.obj(&fun.obj)));
 
     // enumerate upvalues
     for (compiler.upvalues[0..fun.upvalue_count]) |uv| {
@@ -743,18 +761,50 @@ fn function(ty: FunctionType) !void {
     }
 }
 
+fn method() !void {
+    consume(.IDENTIFIER, "Expect method name.");
+    const constant = try identifierConstant(&parser.previous);
+    if (parser.previous.str.len == 4 and std.mem.order(u8, parser.previous.str, "init") == .eq) {
+        try function(.initializer);
+    } else {
+        try function(.method);
+    }
+
+    try emitBytes(.METHOD, constant);
+}
+
+fn this(_: bool) !void {
+    if (current_class) |_| {
+        return variable(false);
+    }
+    errorPrev("Can't use 'this' outside of a class.");
+}
+
 fn classDeclaration() !void {
     consume(.IDENTIFIER, "Expect class name.");
+    const class_name = parser.previous;
     const name_constant: u8 = try identifierConstant(&parser.previous);
     declareVariable();
     try emitBytes(Op.CLASS, name_constant);
     try defineVariable(name_constant);
 
+    var class_compiler = ClassCompiler{
+        .enclosing = current_class,
+    };
+
+    current_class = &class_compiler;
+
+    try namedVariable(class_name, false);
     consume(.LEFT_BRACE, "Expect '{' before class body.");
 
     // methods
+    while (!check(.RIGHT_BRACE) and !check(.EOF)) {
+        try method();
+    }
 
     consume(.RIGHT_BRACE, "Expect '}' after class body.");
+    try emitOp(.POP);
+    current_class = class_compiler.enclosing;
 }
 
 fn funDeclaration() !void {

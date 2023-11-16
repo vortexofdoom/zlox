@@ -75,13 +75,14 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize, last_offset: usize) 
                 os += 1;
                 const index = chunk.code.items[os];
                 os += 1;
-                print("{d:0>4}      |                     {s} {d}\n", .{os - 2, if (is_local) "local" else "upvalue", index});
+                print("{d:0>4}      |                     {s} {d}\n", .{ os - 2, if (is_local) "local" else "upvalue", index });
             }
 
             return os;
         },
         .RETURN => return simpleInstruction("OP_RETURN", offset),
         .CLASS => return constantInstruction("OP_CLASS", chunk, offset),
+        .METHOD => return constantInstruction("OP_METHOD", chunk, offset),
         _ => {
             print("Unknown opcode {d}\n", .{@intFromEnum(instruction)});
             return offset + 1;

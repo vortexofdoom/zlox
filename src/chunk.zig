@@ -37,6 +37,7 @@ pub const Op = enum(u8) {
     CLOSE_UPVALUE,
     RETURN,
     CLASS,
+    METHOD,
     _,
 };
 
@@ -82,7 +83,7 @@ pub const Chunk = extern struct {
                 }
             }
         } else try self.lines.append(Line{ .line = @truncate(line), .count = 1 });
-        
+
         // std.debug.print("Inserting byte at line {d}\n    {c} ", .{ line, '{' });
         // for (self.lines.items[0..self.lines.count], 0..) |entry, i| {
         //     std.debug.print("(line {d}: {d}){s}", .{entry.line, entry.count, if (i < self.lines.count - 1) ", " else " }\n" });

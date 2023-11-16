@@ -53,8 +53,9 @@ pub const Value = union(ValueType) {
         };
     }
 
-    pub inline fn obj(o: *anyopaque) Value {
-        return Value{ .obj = @ptrCast(@alignCast(o)) };
+    // just shorthand
+    pub inline fn obj(o: *Obj) Value {
+        return Value{ .obj = o };
     }
 };
 

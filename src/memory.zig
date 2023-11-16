@@ -11,7 +11,7 @@ const vm = @import("vm.zig");
 
 pub var allocator = undefined;
 
-pub const DEBUG_LOG_GC = true;
+pub const DEBUG_LOG_GC = false;
 pub const DEBUG_STRESS_GC = false;
 const GC_HEAP_GROW_FACTOR = 2;
 
@@ -72,7 +72,7 @@ pub const GcAllocator = struct {
         }
 
         self.gray_stack = std.ArrayList(?*Obj).init(self.internal_allocator);
-        
+
         // if (comptime DEBUG_LOG_GC) {
         //     std.debug.print("  ...mark roots...\n", .{});
         // }
@@ -111,7 +111,7 @@ pub const GcAllocator = struct {
     }
 
     fn markRoots(self: *GcAllocator) void {
-        for (vm.vm.stack[0..@intFromPtr(vm.vm.sp) - @intFromPtr(&vm.vm.stack)]) |v| {
+        for (vm.vm.stack[0 .. @intFromPtr(vm.vm.sp) - @intFromPtr(&vm.vm.stack)]) |v| {
             self.markValue(v);
         }
 
@@ -126,6 +126,7 @@ pub const GcAllocator = struct {
 
         self.markTable(&vm.vm.globals);
         self.markCompilerRoots();
+        if (vm.vm.init_string) |init_str| self.markObject(&init_str.obj);
     }
 
     fn markTable(self: *GcAllocator, table: *HashMap) void {
@@ -147,15 +148,21 @@ pub const GcAllocator = struct {
     fn blackenObject(self: *GcAllocator, obj: *Obj) void {
         if (comptime DEBUG_LOG_GC) {
             //std.debug.print("0x{x} blacken ", .{ @intFromPtr(obj) });
-            std.debug.print("blacken ", .{ });
+            std.debug.print("blacken ", .{});
             value.printValue(Value.obj(obj), std.io.getStdErr().writer()) catch {};
             std.debug.print("\n", .{});
         }
 
         switch (obj.type) {
+            .BOUND_METHOD => {
+                const bound = @fieldParentPtr(object.ObjBoundMethod, "obj", obj);
+                self.markValue(bound.receiver);
+                self.markObject(&bound.method.obj);
+            },
             .CLASS => {
                 const class: *object.ObjClass = @ptrCast(obj);
                 self.markObject(@ptrCast(class.name));
+                self.markTable(&class.methods);
             },
             .CLOSURE => {
                 const closure: *object.ObjClosure = @ptrCast(obj);
@@ -177,7 +184,7 @@ pub const GcAllocator = struct {
             },
             .UPVALUE => {
                 const uv: *object.ObjUpvalue = @ptrCast(@alignCast(obj));
-                if (uv.closed()) self.markValue(uv.get());
+                self.markValue(uv.open.*);
             },
             else => {},
         }
@@ -188,7 +195,7 @@ pub const GcAllocator = struct {
             if (!o.is_marked) {
                 if (comptime DEBUG_LOG_GC) {
                     //std.debug.print("mark ", .{ });
-                    std.debug.print("0x{x} mark ", .{ @intFromPtr(o) });
+                    std.debug.print("0x{x} mark ", .{@intFromPtr(o)});
                     value.printValue(Value.obj(o), std.io.getStdErr().writer()) catch {};
                     std.debug.print("\n", .{});
                 }
@@ -205,7 +212,7 @@ pub const GcAllocator = struct {
             }
         }
     }
-    
+
     fn sweep() void {
         var prev: ?*Obj = null;
         var obj: ?*Obj = vm.vm.objects;
