@@ -24,7 +24,7 @@ const ObjUpvalue = object.ObjUpvalue;
 const copyString = object.copyString;
 const stdout = std.io.getStdOut().writer();
 
-const DEBUG_TRACE_EXECUTION: bool = false;
+const DEBUG_TRACE_EXECUTION: bool = true;
 
 const FRAMES_MAX = 64;
 const STACK_MAX = 256 * FRAMES_MAX;
@@ -128,6 +128,7 @@ pub fn deinit() void {
 fn runtimeError(comptime fmt: []const u8, args: anytype) InterpretError {
     print(fmt, args);
     var i = vm.frame_count - 1;
+    print("\n", .{});
     while (i < std.math.maxInt(usize)) : (i -%= 1) {
         const frame = &vm.frames[i];
         const function = frame.closure.function;
@@ -203,11 +204,11 @@ fn concatenate() !void {
     const l = peek(1).obj.as(ObjString);
     const len = l.len + r.len;
     var chars = try vm.allocator.alloc(u8, len);
-    _ = pop();
-    _ = pop();
     @memcpy(chars[0..l.len], l.ptr[0..l.len]);
     @memcpy(chars[l.len..len], r.ptr[0..r.len]);
     const str = try object.takeString(chars);
+    _ = pop();
+    _ = pop();
     push(Value.obj(&str.obj));
 }
 
@@ -297,7 +298,7 @@ fn captureUpvalue(local: *Value) !*ObjUpvalue {
 
 fn closeUpvalues(last: *Value) void {
     while (vm.open_upvalues) |curr| : (vm.open_upvalues = curr.next) {
-        if (@intFromPtr(last) >= @intFromPtr(curr.open)) break;
+        if (@intFromPtr(last) > @intFromPtr(curr.open)) break;
         curr.closed = curr.open.*;
         curr.open = &curr.closed;
     }
@@ -402,6 +403,17 @@ pub fn run() !void {
                 _ = pop();
                 push(val);
             },
+            .GET_SUPER => {
+                const name = frame.readString();
+                const superclass = pop().obj.as(ObjClass);
+                std.debug.print("name: ", .{});
+                object.printObject(&name.obj, std.io.getStdErr().writer()) catch {};
+                std.debug.print(" super: ", .{});
+                object.printObject(&superclass.obj, std.io.getStdErr().writer()) catch {};
+                std.debug.print("\n", .{});
+
+                try bindMethod(superclass, name);
+            },
             .EQUAL => push(Value{ .bool = pop().equals(pop()) }),
             .GREATER => try binaryOp(.GREATER),
             .LESS => try binaryOp(.LESS),
@@ -473,6 +485,7 @@ pub fn run() !void {
             },
             .CLOSE_UPVALUE => {
                 closeUpvalues(@ptrCast(vm.sp - 1));
+                _ = pop();
             },
             .RETURN => {
                 const result = pop();
@@ -490,6 +503,17 @@ pub fn run() !void {
             .CLASS => {
                 const name = try ObjClass.new(frame.readString());
                 push(Value.obj(&name.obj));
+            },
+            .INHERIT => {
+                const superclass = peek(1);
+                if (superclass != .obj or superclass.obj.type != .CLASS) {
+                    return runtimeError("Superclass must be a class.", .{});
+                }
+
+                const subclass = peek(0).obj.as(ObjClass);
+                try subclass.methods.copyFrom(&superclass.obj.as(ObjClass).methods);
+                // pop the subclass from the stack
+                _ = pop();
             },
             .METHOD => try defineMethod(frame.readString()),
             else => return InterpretError.RuntimeError,

@@ -86,12 +86,12 @@ pub const HashMap = extern struct {
         self.ptr = slice.ptr;
     }
 
-    pub fn free(self: *HashMap) void {
+    pub inline fn free(self: *HashMap) void {
         allocator.free(self.entries());
         self.init() catch {};
     }
 
-    pub fn entries(self: *HashMap) []?Entry {
+    pub inline fn entries(self: *HashMap) []?Entry {
         return self.ptr[0..self.capacity];
     }
 
@@ -142,9 +142,20 @@ pub const HashMap = extern struct {
     pub fn copyFrom(self: *HashMap, from: *HashMap) !void {
         for (from.entries()) |entry| {
             if (entry) |e| {
-                if (e.key) |k| try self.insert(k, e.val);
+                if (e.key) |k| _ = try self.insert(k, e.val);
+
             }
         }
+        // std.debug.print("\nTO:\n", .{});
+        // for (self.entries()) |entry| {
+        //     if (entry) |e| {
+        //         if (e.key) |k| {
+        //             object.printObject(@ptrCast(k), std.io.getStdErr().writer()) catch {};
+        //             std.debug.print(", ", .{});
+        //             value.printValue(e.val, std.io.getStdErr().writer()) catch {};
+        //         }
+        //     }
+        // }
     }
 
     pub fn adjustCapacity(self: *HashMap, capacity: usize) !void {
@@ -173,15 +184,6 @@ pub const HashMap = extern struct {
 
     pub fn findString(self: *HashMap, chars: []const u8, hash: u32) ?*ObjString {
         if (self.count == 0) return null;
-        // for (self.entries[0..self.count]) |entry| {
-        //     if (entry) |e| {
-        //         if (e.key) |k| {
-        //             object.printObject(@ptrCast(k), std.io.getStdErr().writer()) catch {};
-        //             std.debug.print(", ", .{});
-        //             value.printValue(e.val, std.io.getStdErr().writer()) catch {};
-        //         }
-        //     }
-        // }
         var idx = hash % self.capacity;
         while (true) : (idx = (idx + 1) % self.capacity) {
             const entry = &self.entries()[idx];

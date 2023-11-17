@@ -137,6 +137,7 @@ const Compiler = struct {
 
 const ClassCompiler = struct {
     enclosing: ?*ClassCompiler,
+    has_superclass: bool = false,
 };
 
 fn currentChunk() *Chunk {
@@ -210,7 +211,7 @@ const rules = [_]ParseRule{
     makeRule(null,      or_,    .OR), // OR
     makeRule(null,      null,   .NONE), // PRINT
     makeRule(null,      null,   .NONE), // RETURN
-    makeRule(null,      null,   .NONE), // SUPER
+    makeRule(super,     null,   .NONE), // SUPER
     makeRule(this,      null,   .NONE), // THIS
     makeRule(literal,   null,   .NONE), // TRUE
     makeRule(null,      null,   .NONE), // VAR
@@ -256,30 +257,30 @@ fn consume(ty: TT, msg: []const u8) void {
 fn endCompiler() !*ObjFunction {
     try emitReturn();
     const fun = current.?.function.?;
-    if (comptime DEBUG_WRITE_CODE and !parser.had_error) @import("debug.zig").disassembleChunk(currentChunk(), if (fun.name) |name| name.ptr[0..name.len] else "<script>");
+    if ((comptime DEBUG_WRITE_CODE) and !parser.had_error) @import("debug.zig").disassembleChunk(currentChunk(), if (fun.name) |name| name.ptr[0..name.len] else "<script>");
 
     current = current.?.enclosing;
     return fun;
 }
 
 fn variable(can_assign: bool) !void {
-    try namedVariable(parser.previous, can_assign);
+    try namedVariable(parser.previous.str, can_assign);
 }
 
-fn namedVariable(name: Token, can_assign: bool) !void {
+fn namedVariable(name: []const u8, can_assign: bool) !void {
     var get_op: Op = undefined;
     var set_op: Op = undefined;
 
-    var arg: ?u8 = current.?.resolveLocal(name.str);
+    var arg: ?u8 = current.?.resolveLocal(name);
     if (arg) |_| {
         get_op = Op.GET_LOCAL;
         set_op = Op.SET_LOCAL;
-    } else if (current.?.resolveUpvalue(name.str)) |uv| {
+    } else if (current.?.resolveUpvalue(name)) |uv| {
         arg = uv;
         get_op = Op.GET_UPVALUE;
         set_op = Op.SET_UPVALUE;
     } else {
-        arg = try identifierConstant(&name);
+        arg = try identifierConstant(name);
         get_op = Op.GET_GLOBAL;
         set_op = Op.SET_GLOBAL;
     }
@@ -293,7 +294,7 @@ fn namedVariable(name: Token, can_assign: bool) !void {
 
 fn dot(can_assign: bool) !void {
     consume(.IDENTIFIER, "Expect property name after '.'.");
-    const name = try identifierConstant(&parser.previous);
+    const name = try identifierConstant(parser.previous.str);
     if (can_assign and match(.EQUAL)) {
         try expression();
         try emitBytes(Op.SET_PROPERTY, name);
@@ -623,8 +624,8 @@ fn forStatement() !void {
     try endScope();
 }
 
-fn identifierConstant(name: *const Token) !u8 {
-    return makeConstant(Value.obj(&(try copyString(name.str)).obj));
+fn identifierConstant(name: []const u8) !u8 {
+    return makeConstant(Value.obj(&(try copyString(name)).obj));
 }
 
 fn parseVariable(msg: []const u8) !u8 {
@@ -633,7 +634,7 @@ fn parseVariable(msg: []const u8) !u8 {
     declareVariable();
     if (current.?.scope_depth > 0) return 0;
 
-    return identifierConstant(&parser.previous);
+    return identifierConstant(parser.previous.str);
 }
 
 fn declareVariable() void {
@@ -763,7 +764,7 @@ fn function(ty: FunctionType) !void {
 
 fn method() !void {
     consume(.IDENTIFIER, "Expect method name.");
-    const constant = try identifierConstant(&parser.previous);
+    const constant = try identifierConstant(parser.previous.str);
     if (parser.previous.str.len == 4 and std.mem.order(u8, parser.previous.str, "init") == .eq) {
         try function(.initializer);
     } else {
@@ -780,19 +781,52 @@ fn this(_: bool) !void {
     errorPrev("Can't use 'this' outside of a class.");
 }
 
+fn super(_: bool) !void {
+    if (current_class) |curr_class| {
+        if (!curr_class.has_superclass) {
+            errorPrev("Can't use 'super' in a class with no superclass.");
+        }
+    } else errorPrev("Can't use 'super' outside of a class.");
+
+    consume(.DOT, "Expect '.' after 'super'.");
+    consume(.IDENTIFIER, "Expect superclass method name.");
+    const name = try identifierConstant(parser.previous.str);
+
+    try namedVariable("this", false);
+    try namedVariable("super", false);
+    try emitBytes(.GET_SUPER, name);
+}
+
 fn classDeclaration() !void {
     consume(.IDENTIFIER, "Expect class name.");
-    const class_name = parser.previous;
-    const name_constant: u8 = try identifierConstant(&parser.previous);
+    const class_name = parser.previous.str;
+    const name_constant: u8 = try identifierConstant(class_name);
     declareVariable();
     try emitBytes(Op.CLASS, name_constant);
     try defineVariable(name_constant);
 
     var class_compiler = ClassCompiler{
         .enclosing = current_class,
+        .has_superclass = false,
     };
 
     current_class = &class_compiler;
+
+    if (match(.LESS)) {
+        consume(.IDENTIFIER, "Expect superclass name.");
+        try variable(false);
+        if (identifiersEqual(class_name, parser.previous.str)) {
+            errorPrev("A class can't inherit from itself.");
+        }
+
+        beginScope();
+        addLocal("super");
+        try defineVariable(0);
+
+        try namedVariable(class_name, false);
+        try emitOp(Op.INHERIT);
+        class_compiler.has_superclass = true;
+    }
 
     try namedVariable(class_name, false);
     consume(.LEFT_BRACE, "Expect '{' before class body.");
@@ -804,6 +838,11 @@ fn classDeclaration() !void {
 
     consume(.RIGHT_BRACE, "Expect '}' after class body.");
     try emitOp(.POP);
+
+    if (class_compiler.has_superclass) {
+        try endScope();
+    }
+
     current_class = class_compiler.enclosing;
 }
 

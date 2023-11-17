@@ -45,6 +45,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize, last_offset: usize) 
         .SET_UPVALUE => return byteInstruction("OP_SET_UPVALUE", chunk, offset),
         .GET_PROPERTY => return constantInstruction("OP_GET_PROPERTY", chunk, offset),
         .SET_PROPERTY => return constantInstruction("OP_SET_PROPERTY", chunk, offset),
+        .GET_SUPER => return constantInstruction("OP_GET_SUPER", chunk, offset),
         .EQUAL => return simpleInstruction("OP_EQUAL", offset),
         .GREATER => return simpleInstruction("OP_GREATER", offset),
         .LESS => return simpleInstruction("OP_LESS", offset),
@@ -82,6 +83,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize, last_offset: usize) 
         },
         .RETURN => return simpleInstruction("OP_RETURN", offset),
         .CLASS => return constantInstruction("OP_CLASS", chunk, offset),
+        .INHERIT => return simpleInstruction("OP_INHERIT", offset),
         .METHOD => return constantInstruction("OP_METHOD", chunk, offset),
         _ => {
             print("Unknown opcode {d}\n", .{@intFromEnum(instruction)});

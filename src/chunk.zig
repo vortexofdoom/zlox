@@ -19,6 +19,7 @@ pub const Op = enum(u8) {
     SET_UPVALUE,
     GET_PROPERTY,
     SET_PROPERTY,
+    GET_SUPER,
     EQUAL,
     GREATER,
     LESS,
@@ -37,6 +38,7 @@ pub const Op = enum(u8) {
     CLOSE_UPVALUE,
     RETURN,
     CLASS,
+    INHERIT,
     METHOD,
     _,
 };
