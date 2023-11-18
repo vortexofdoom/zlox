@@ -207,7 +207,7 @@ pub const ObjString = extern struct {
         str.len = chars.len;
         str.hash = hash;
         vm.push(Value.obj(&str.obj));
-        _ = try vm.vm.strings.insert(str, Value.Nil);
+        _ = try vm.vm.strings.insert(str, Value.NIL);
         _ = vm.pop();
         return str;
     }
@@ -230,7 +230,7 @@ pub const ObjNative = struct {
 pub const ObjUpvalue = struct {
     obj: Obj,
     open: *Value,
-    closed: Value = Value.Nil,
+    closed: Value = Value.NIL,
     next: ?*ObjUpvalue,
 
     pub fn new(slot: *Value) !*ObjUpvalue {

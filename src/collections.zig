@@ -67,7 +67,7 @@ pub fn ArrayList(comptime T: type) type {
 
 const Entry = struct {
     key: ?*ObjString = null,
-    val: Value = Value.Nil,
+    val: Value = Value.NIL,
 };
 
 pub const HashMap = extern struct {
@@ -134,7 +134,7 @@ pub const HashMap = extern struct {
         var entry = findEntry(self.entries(), key);
         if (entry.* != null) {
             entry.*.?.key = null;
-            entry.*.?.val = Value{ .bool = true };
+            entry.*.?.val = Value.TRUE;
             return true;
         } else return false;
     }
@@ -143,7 +143,6 @@ pub const HashMap = extern struct {
         for (from.entries()) |entry| {
             if (entry) |e| {
                 if (e.key) |k| _ = try self.insert(k, e.val);
-
             }
         }
         // std.debug.print("\nTO:\n", .{});
@@ -184,8 +183,8 @@ pub const HashMap = extern struct {
 
     pub fn findString(self: *HashMap, chars: []const u8, hash: u32) ?*ObjString {
         if (self.count == 0) return null;
-        var idx = hash % self.capacity;
-        while (true) : (idx = (idx + 1) % self.capacity) {
+        var idx = hash & (self.capacity - 1);
+        while (true) : (idx = (idx + 1) & (self.capacity - 1)) {
             const entry = &self.entries()[idx];
             if (entry.*) |e| {
                 if (e.key) |k| {
@@ -199,9 +198,9 @@ pub const HashMap = extern struct {
 };
 
 fn findEntry(entries: []?Entry, key: *ObjString) *?Entry {
-    var idx: usize = key.hash % entries.len;
+    var idx: usize = key.hash & (entries.len - 1);
     var tombstone: ?*?Entry = null;
-    while (true) : (idx = (idx + 1) % entries.len) {
+    while (true) : (idx = (idx + 1) & (entries.len - 1)) {
         const entry = &entries[idx];
 
         if (entry.*) |e| {

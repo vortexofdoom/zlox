@@ -47,9 +47,10 @@ fn runFile(path: []const u8, alloc: std.mem.Allocator) !void {
 pub fn main() !void {
     var gen_purpose = std.heap.GeneralPurposeAllocator(.{}){};
     var alloc = gen_purpose.allocator();
+    //const alloc = std.heap.c_allocator;
     var gc = memory.GcAllocator.init(alloc);
 
-    var gc_alloc = gc.allocator();
+    const gc_alloc = gc.allocator();
 
     defer _ = gen_purpose.deinit();
 

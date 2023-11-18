@@ -228,7 +228,7 @@ fn errorAt(token: *Token, msg: []const u8) void {
 
     switch (token.type) {
         .ERROR => {}, // Do nothing
-        .EOF => std.debug.print("at end", .{}),
+        .EOF => std.debug.print(" at end", .{}),
         else => std.debug.print(" at '{s}'", .{token.str}),
     }
 
@@ -298,6 +298,10 @@ fn dot(can_assign: bool) !void {
     if (can_assign and match(.EQUAL)) {
         try expression();
         try emitBytes(Op.SET_PROPERTY, name);
+    } else if (match(.LEFT_PAREN)) {
+        const arg_count = try argumentList();
+        try emitBytes(.INVOKE, name);
+        try emitByte(arg_count);
     } else {
         try emitBytes(Op.GET_PROPERTY, name);
     }
@@ -329,7 +333,7 @@ fn number(_: bool) !void {
         return;
     };
 
-    try emitConstant(Value{ .number = value });
+    try emitConstant(Value.number(value));
 }
 
 inline fn emitConstant(val: Value) !void {
@@ -793,8 +797,15 @@ fn super(_: bool) !void {
     const name = try identifierConstant(parser.previous.str);
 
     try namedVariable("this", false);
-    try namedVariable("super", false);
-    try emitBytes(.GET_SUPER, name);
+    if (match(.LEFT_PAREN)) {
+        const arg_count = try argumentList();
+        try namedVariable("super", false);
+        try emitBytes(.SUPER_INVOKE, name);
+        try emitByte(arg_count);
+    } else {
+        try namedVariable("super", false);
+        try emitBytes(.GET_SUPER, name);
+    }
 }
 
 fn classDeclaration() !void {

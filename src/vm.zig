@@ -8,7 +8,6 @@ const Chunk = chunk_.Chunk;
 const HashMap = @import("collections.zig").HashMap;
 const value = @import("value.zig");
 const Value = value.Value;
-const printValue = value.printValue;
 const print = std.debug.print;
 const compile = @import("compiler.zig").compile;
 const ClosedUpvalue = object.ClosedUpvalue;
@@ -24,7 +23,7 @@ const ObjUpvalue = object.ObjUpvalue;
 const copyString = object.copyString;
 const stdout = std.io.getStdOut().writer();
 
-const DEBUG_TRACE_EXECUTION: bool = true;
+const DEBUG_TRACE_EXECUTION: bool = false;
 
 const FRAMES_MAX = 64;
 const STACK_MAX = 256 * FRAMES_MAX;
@@ -39,7 +38,7 @@ var start: std.time.Instant = undefined;
 fn clock(_: []Value) !Value {
     const now = try std.time.Instant.now();
 
-    return Value{ .number = @as(f64, @floatFromInt(now.since(start))) / 1e9 };
+    return Value.number(@as(f64, @floatFromInt(now.since(start))) / 1e9 );
 }
 
 frames: [FRAMES_MAX]CallFrame,
@@ -61,7 +60,7 @@ const Self = @This();
 pub var vm: Self = .{
     .frames = [1]CallFrame{undefined} ** FRAMES_MAX,
     .allocator = undefined,
-    .stack = [_]Value{Value{ .nil = {} }} ** STACK_MAX,
+    .stack = [_]Value{Value.NIL} ** STACK_MAX,
     .sp = undefined,
     .strings = undefined,
     .globals = undefined,
@@ -91,7 +90,7 @@ const CallFrame = struct {
     }
 
     inline fn readString(frame: *CallFrame) *ObjString {
-        return frame.readConstant().obj.as(ObjString);
+        return frame.readConstant().asObj().as(ObjString);
     }
 };
 
@@ -147,7 +146,7 @@ fn defineNative(name: []const u8, function: NativeFn) !void {
     push(Value.obj(&str.obj));
     const native = try ObjNative.new(function);
     push(Value.obj(&native.obj));
-    _ = try vm.globals.insert(vm.stack[0].obj.as(ObjString), vm.stack[1]);
+    _ = try vm.globals.insert(vm.stack[0].asObj().as(ObjString), vm.stack[1]);
     _ = pop();
     _ = pop();
 }
@@ -176,21 +175,31 @@ pub inline fn pop() Value {
 }
 
 inline fn binaryOp(comptime op: Op) !void {
-    const r = switch (pop()) {
-        .number => |n| n,
-        else => return InterpretError.RuntimeError,
-    };
-    const l = switch (pop()) {
-        .number => |n| n,
-        else => return InterpretError.RuntimeError,
-    };
+
+    const rval = pop();//.asNumber() orelse return runtimeError("Operands must be {s}two numbers.", .{comptime if (op == .ADD) "two strings or " else ""});
+    if (!rval.isNumber()) return runtimeError("Operands must be {s}two numbers.", .{comptime if (op == .ADD) "two strings or " else ""});
+    const lval = pop();//.asNumber() orelse 
+    if (!lval.isNumber()) return runtimeError("Operands must be {s}two numbers.", .{comptime if (op == .ADD) "two strings or " else ""});
+    const r = rval.asNumber();
+    const l = lval.asNumber();
+    
+    
+    // switch (pop()) {
+    // const r = switch(pop()) {
+    //     .number => |n| n,
+    //     else => return InterpretError.RuntimeError,
+    // };
+    // const l = switch (pop()) {
+    //     .number => |n| n,
+    //     else => return InterpretError.RuntimeError,
+    // };
     push(switch (op) {
-        .ADD => Value{ .number = l + r },
-        .SUBTRACT => Value{ .number = l - r },
-        .MULTIPLY => Value{ .number = l * r },
-        .DIVIDE => Value{ .number = l / r },
-        .GREATER => Value{ .bool = l > r },
-        .LESS => Value{ .bool = l < r },
+        .ADD => Value.number(l + r),
+        .SUBTRACT => Value.number(l - r), //{ .number = l - r },
+        .MULTIPLY => Value.number(l * r), // { .number = l * r },
+        .DIVIDE => Value.number(l / r), //{ .number = l / r },
+        .GREATER => Value.fromBool(l > r), //{ .bool = l > r },
+        .LESS => Value.fromBool(l < r),
         else => unreachable,
     });
 }
@@ -200,8 +209,8 @@ inline fn peek(distance: usize) Value {
 }
 
 fn concatenate() !void {
-    const r = peek(0).obj.as(ObjString);
-    const l = peek(1).obj.as(ObjString);
+    const r = peek(0).asObj().as(ObjString);
+    const l = peek(1).asObj().as(ObjString);
     const len = l.len + r.len;
     var chars = try vm.allocator.alloc(u8, len);
     @memcpy(chars[0..l.len], l.ptr[0..l.len]);
@@ -229,27 +238,28 @@ fn call(closure: *ObjClosure, arg_count: u8) InterpretError!void {
 }
 
 fn callValue(callee: Value, arg_count: u8) !void {
-    if (callee == .obj) {
-        switch (callee.obj.type) {
+    if (callee.isObj()) {
+        const obj = callee.asObj();
+        switch (obj.type) {
             .BOUND_METHOD => {
-                const bound = callee.obj.as(ObjBoundMethod);
+                const bound = obj.as(ObjBoundMethod);
                 (vm.sp - arg_count - 1)[0] = bound.receiver;
                 return call(bound.method, arg_count);
             },
             .CLASS => {
-                const class = callee.obj.as(ObjClass);
+                const class = obj.as(ObjClass);
                 const instance = try ObjInstance.new(class);
                 (vm.sp - arg_count - 1)[0] = Value.obj(&instance.obj);
                 if (class.methods.get(vm.init_string.?)) |initializer| {
-                    return call(initializer.obj.as(ObjClosure), arg_count);
+                    return call(initializer.asObj().as(ObjClosure), arg_count);
                 } else if (arg_count != 0) {
                     return runtimeError("Expected 0 arguments but got {d}.", .{arg_count});
                 }
                 return;
             },
-            .CLOSURE => return call(callee.obj.as(ObjClosure), arg_count),
+            .CLOSURE => return call(obj.as(ObjClosure), arg_count),
             .NATIVE => {
-                const native = callee.obj.as(ObjNative).function;
+                const native = obj.as(ObjNative).function;
                 const result = try native((vm.sp - arg_count)[0..arg_count]);
                 vm.sp -= arg_count + 1;
                 push(result);
@@ -261,9 +271,31 @@ fn callValue(callee: Value, arg_count: u8) !void {
     return runtimeError("Can only call functions and classes.", .{});
 }
 
+fn invokeFromClass(class: *ObjClass, name: *ObjString, arg_count: u8) !void {
+    if (class.methods.get(name)) |method| {
+        return call(method.asObj().as(ObjClosure), arg_count);
+    }
+    return runtimeError("Undefined property '{s}'.", .{name.ptr[0..name.len]});
+}
+
+fn invoke(name: *ObjString, arg_count: u8) !void {
+    const receiver = peek(arg_count);//.asObj() orelse return runtimeError("Only instances have methods.", .{});
+    if (!receiver.isObj() or receiver.asObj().type != .INSTANCE) {
+        return runtimeError("Only instances have methods.", .{});
+    }
+    const instance = receiver.asObj().as(ObjInstance);
+
+    if (instance.fields.get(name)) |field| {
+        (vm.sp - arg_count - 1)[0] = field;
+        return callValue(field, arg_count);
+    }
+
+    return invokeFromClass(instance.class, name, arg_count);
+}
+
 fn bindMethod(class: *ObjClass, name: *ObjString) !void {
     if (class.methods.get(name)) |entry| {
-        const bound = try ObjBoundMethod.new(peek(0), entry.obj.as(ObjClosure));
+        const bound = try ObjBoundMethod.new(peek(0), entry.asObj().as(ObjClosure));
         _ = pop();
         push(Value.obj(&bound.obj));
     } else {
@@ -306,7 +338,7 @@ fn closeUpvalues(last: *Value) void {
 
 fn defineMethod(name: *ObjString) !void {
     const method = peek(0);
-    var class: *ObjClass = @ptrCast(peek(1).obj);
+    var class: *ObjClass = @ptrCast(peek(1).asObj());
     _ = try class.methods.insert(name, method);
     _ = pop();
 }
@@ -321,7 +353,7 @@ pub fn run() !void {
             //for (self.stack[0..@intFromPtr(self.sp) - @intFromPtr(&self.stack)]) |slot| {
             while (@intFromPtr(slot) < @intFromPtr(vm.sp)) : (slot += 1) {
                 std.debug.print("[ ", .{});
-                try printValue(slot[0], std.io.getStdErr().writer());
+                try slot[0].print(std.io.getStdErr().writer());
                 std.debug.print(" ]", .{});
             }
             std.debug.print("\n", .{});
@@ -334,9 +366,9 @@ pub fn run() !void {
                 const constant = frame.readConstant();
                 push(constant);
             },
-            .NIL => push(Value{ .nil = {} }),
-            .TRUE => push(Value{ .bool = true }),
-            .FALSE => push(Value{ .bool = false }),
+            .NIL => push(Value.NIL),
+            .TRUE => push(Value.TRUE),
+            .FALSE => push(Value.FALSE),
             .POP => _ = pop(),
             .GET_LOCAL => {
                 const slot = frame.readByte();
@@ -374,13 +406,13 @@ pub fn run() !void {
                 frame.closure.upvalues.items[slot].?.open.* = peek(0);
             },
             .GET_PROPERTY => {
-                const maybe_instance = peek(0);
-                if (maybe_instance != .obj or maybe_instance.obj.type != .INSTANCE) {
+                const maybe_instance = peek(0);//.asObj() orelse return runtimeError("Only instances have properties.", .{});
+                if (!maybe_instance.isObj() or maybe_instance.asObj().type != .INSTANCE) {
                     return runtimeError("Only instances have properties.", .{});
                 }
 
                 const name = frame.readString();
-                const instance: *ObjInstance = @ptrCast(maybe_instance.obj);
+                const instance: *ObjInstance = @ptrCast(maybe_instance.asObj());
 
                 if (instance.fields.get(name)) |field| {
                     // pop the instance off the stack
@@ -391,12 +423,12 @@ pub fn run() !void {
                 }
             },
             .SET_PROPERTY => {
-                const maybe_instance = peek(1);
-                if (maybe_instance != .obj or maybe_instance.obj.type != .INSTANCE) {
+                const maybe_instance = peek(1);//.asObj() orelse return runtimeError("Only instances have properties.", .{});
+                if (!maybe_instance.isObj() or maybe_instance.asObj().type != .INSTANCE) {
                     return runtimeError("Only instances have properties.", .{});
                 }
 
-                const instance = maybe_instance.obj.as(ObjInstance);
+                const instance = maybe_instance.asObj().as(ObjInstance);
                 _ = try instance.fields.insert(frame.readString(), peek(0));
                 const val = pop();
                 // pop the instance off the stack
@@ -405,47 +437,65 @@ pub fn run() !void {
             },
             .GET_SUPER => {
                 const name = frame.readString();
-                const superclass = pop().obj.as(ObjClass);
-                std.debug.print("name: ", .{});
-                object.printObject(&name.obj, std.io.getStdErr().writer()) catch {};
-                std.debug.print(" super: ", .{});
-                object.printObject(&superclass.obj, std.io.getStdErr().writer()) catch {};
-                std.debug.print("\n", .{});
-
+                const superclass = pop().asObj().as(ObjClass);
                 try bindMethod(superclass, name);
             },
-            .EQUAL => push(Value{ .bool = pop().equals(pop()) }),
+            .EQUAL => push(Value.fromBool(std.meta.eql(pop(), pop()))), // pop().equals(pop()) }),
             .GREATER => try binaryOp(.GREATER),
             .LESS => try binaryOp(.LESS),
             .ADD => {
-                if (peek(0).valType() == peek(1).valType()) switch (peek(0)) {
-                    .number => try binaryOp(.ADD),
-                    .obj => |o| {
-                        switch (o.*.type) {
-                            .STRING => {
-                                if (peek(1).objType() == .STRING) concatenate() catch {
-                                    return InterpretError.RuntimeError;
-                                };
-                            },
-                            else => return InterpretError.RuntimeError,
-                        }
-                        if (o.type == peek(1).objType()) {}
+                // if (peek(0).asNumber()) |r| {
+                //     if (peek(1).asNumber()) |l| {
+                //         _ = pop();
+                //         _ = pop();
+                //         push(Value.number(l + r));
+                //         continue;
+                //     }
+                // } else if (peek(0).asObj()) |o| {
+                //     if (o.type == .STRING) {
+                //         if (peek(1).objType() == .STRING) {
+                //             concatenate() catch return InterpretError.RuntimeError;
+                //             continue;
+                //         }
+                //     }
+                // }
+                // return runtimeError("Operands must be two strings or two numbers.", .{});
+
+                // if (peek(0).isNumber() and peek(1).isNumber())
+                const r = peek(0);
+                const l = peek(1);
+                if (r.valType() == l.valType()) switch (r.valType()) {
+                    .number => {
+                        try binaryOp(.ADD);
+                        //continue;
                     },
-                    else => return InterpretError.RuntimeError,
-                };
+                    .obj => {
+                        switch (r.objType().?) {
+                            .STRING => {
+                                if (l.objType().? == .STRING) try concatenate();
+                                //continue;
+                            },
+                            else => return runtimeError("Operands must be two strings or two numbers.", .{}),//return InterpretError.RuntimeError,
+                        }
+                        //if (o.type == peek(1).objType()) {}
+                    },
+                    else => return runtimeError("Operands must be two strings or two numbers.", .{}),//,
+                } else return runtimeError("Operands must be two strings or two numbers.", .{});
+                //return InterpretError.RuntimeError;
+                //
             },
             .SUBTRACT => try binaryOp(.SUBTRACT),
             .MULTIPLY => try binaryOp(.MULTIPLY),
             .DIVIDE => try binaryOp(.DIVIDE),
-            .NOT => push(Value{ .bool = pop().isFalsey() }),
+            .NOT => push(Value.fromBool(pop().isFalsey())),
             .NEGATE => {
-                switch (peek(0)) {
-                    .number => push(Value{ .number = -(pop().number) }),
-                    else => return InterpretError.RuntimeError,
-                }
+                
+                const n = pop();//.asNumber() orelse 
+                if (!n.isNumber()) return runtimeError("Can only negate numbers.", .{});
+                push(Value.number(-n.asNumber()));
             },
             .PRINT => {
-                printValue(pop(), stdout) catch {
+                pop().print(stdout) catch {
                     return runtimeError("Error printing to stdout.", .{});
                 };
                 stdout.print("\n", .{}) catch {
@@ -469,8 +519,21 @@ pub fn run() !void {
                 callValue(peek(arg_count), arg_count) catch return InterpretError.RuntimeError;
                 frame = &vm.frames[vm.frame_count - 1];
             },
+            .INVOKE => {
+                const method = frame.readString();
+                const arg_count = frame.readByte();
+                try invoke(method, arg_count);
+                frame = &vm.frames[vm.frame_count - 1];
+            },
+            .SUPER_INVOKE => {
+                const method = frame.readString();
+                const arg_count = frame.readByte();
+                const superclass = pop().asObj().as(ObjClass);
+                try invokeFromClass(superclass, method, arg_count);
+                frame = &vm.frames[vm.frame_count - 1];
+            },
             .CLOSURE => {
-                const fun = frame.readConstant().obj.as(ObjFunction);
+                const fun = frame.readConstant().asObj().as(ObjFunction);
                 const closure = try ObjClosure.new(fun);
                 push(Value.obj(&closure.obj));
                 for (0..closure.upvalues.count) |i| {
@@ -505,13 +568,13 @@ pub fn run() !void {
                 push(Value.obj(&name.obj));
             },
             .INHERIT => {
-                const superclass = peek(1);
-                if (superclass != .obj or superclass.obj.type != .CLASS) {
+                const superclass = peek(1);//.asObj() orelse return runtimeError("Superclass must be a class.", .{});
+                if (!superclass.isObj() or superclass.asObj().type != .CLASS) {
                     return runtimeError("Superclass must be a class.", .{});
                 }
-
-                const subclass = peek(0).obj.as(ObjClass);
-                try subclass.methods.copyFrom(&superclass.obj.as(ObjClass).methods);
+                // Infalliable since trying to make a non-class inherit will never be generated in bytecode, so no check.
+                const subclass = peek(0).asObj().as(ObjClass);
+                try subclass.methods.copyFrom(&superclass.asObj().as(ObjClass).methods);
                 // pop the subclass from the stack
                 _ = pop();
             },

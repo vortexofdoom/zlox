@@ -139,17 +139,14 @@ pub const GcAllocator = struct {
     }
 
     fn markValue(self: *GcAllocator, val: Value) void {
-        switch (val) {
-            .obj => |o| self.markObject(o),
-            else => return,
-        }
+        if (val.isObj()) self.markObject(val.asObj()) else return;
     }
 
     fn blackenObject(self: *GcAllocator, obj: *Obj) void {
         if (comptime DEBUG_LOG_GC) {
             //std.debug.print("0x{x} blacken ", .{ @intFromPtr(obj) });
             std.debug.print("blacken ", .{});
-            value.printValue(Value.obj(obj), std.io.getStdErr().writer()) catch {};
+            value.val.print(Value.obj(obj), std.io.getStdErr().writer()) catch {};
             std.debug.print("\n", .{});
         }
 
@@ -196,7 +193,7 @@ pub const GcAllocator = struct {
                 if (comptime DEBUG_LOG_GC) {
                     //std.debug.print("mark ", .{ });
                     std.debug.print("0x{x} mark ", .{@intFromPtr(o)});
-                    value.printValue(Value.obj(o), std.io.getStdErr().writer()) catch {};
+                    value.val.print(Value.obj(o), std.io.getStdErr().writer()) catch {};
                     std.debug.print("\n", .{});
                 }
                 o.is_marked = true;
