@@ -29,7 +29,7 @@ pub const Obj = extern struct {
     next: ?*Obj,
 
     pub fn new(comptime obj_type: ObjType, alloc: Allocator) !*Obj {
-        comptime var T: type = switch (obj_type) {
+        const T: type = switch (obj_type) {
             .BOUND_METHOD => ObjBoundMethod,
             .CLASS => ObjClass,
             .CLOSURE => ObjClosure,
@@ -48,7 +48,7 @@ pub const Obj = extern struct {
         obj.next = vm.vm.objects;
         vm.vm.objects = obj;
         if (comptime DEBUG_LOG_GC) {
-            comptime var name = switch (obj_type) {
+            const name = switch (obj_type) {
                 .BOUND_METHOD => "ObjBoundMethod",
                 .CLASS => "ObjClass",
                 .CLOSURE => "ObjClosure",
@@ -64,8 +64,8 @@ pub const Obj = extern struct {
         return obj;
     }
 
-    pub inline fn as(obj: *Obj, comptime T: type) *T {
-        return @fieldParentPtr(T, "obj", obj);
+    pub fn as(obj: *Obj, comptime T: type) *T {
+        return @fieldParentPtr("obj", obj);
     }
 
     pub fn free(obj: *Obj) void {
@@ -87,21 +87,21 @@ pub const Obj = extern struct {
                 alloc.destroy(closure);
             },
             .FUNCTION => {
-                var fun = obj.as(ObjFunction);
+                const fun = obj.as(ObjFunction);
                 fun.chunk.deinit();
                 alloc.destroy(fun);
             },
             .INSTANCE => {
-                var instance = obj.as(ObjInstance);
+                const instance = obj.as(ObjInstance);
                 instance.fields.free();
                 alloc.destroy(instance);
             },
             .NATIVE => {
-                var native = obj.as(ObjNative);
+                const native = obj.as(ObjNative);
                 alloc.destroy(native);
             },
             .STRING => {
-                var str = obj.as(ObjString);
+                const str = obj.as(ObjString);
                 alloc.free(str.ptr[0..str.len]);
                 alloc.destroy(str);
             },
@@ -253,7 +253,7 @@ fn hashString(key: []const u8) u32 {
 
 pub fn printObject(obj: *Obj, comptime writer: anytype) !void {
     switch (obj.type) {
-        .BOUND_METHOD => try printObject(&@fieldParentPtr(ObjBoundMethod, "obj", obj).method.function.obj, writer),
+        .BOUND_METHOD => try printObject(&@as(*ObjBoundMethod, @fieldParentPtr("obj", obj)).method.function.obj, writer),
         .CLASS => {
             const class = obj.as(ObjClass);
             try writer.print("{s}", .{class.name.ptr[0..class.name.len]});
@@ -293,7 +293,7 @@ pub fn takeString(chars: []u8) !*ObjString {
 pub fn copyString(chars: []const u8) !*ObjString {
     const hash: u32 = hashString(chars);
     if (vm.vm.strings.findString(chars, hash)) |interned| return interned;
-    var str = try vm.vm.allocator.alloc(u8, chars.len);
+    const str = try vm.vm.allocator.alloc(u8, chars.len);
     @memcpy(str, chars);
     return ObjString.new(str, hash);
 }

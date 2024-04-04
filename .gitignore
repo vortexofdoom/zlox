@@ -5,3 +5,6 @@ build-*/
 docgen_tmp/
 *.lox
 *.test
+*.svg
+*.data
+*.old

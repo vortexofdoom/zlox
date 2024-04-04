@@ -72,7 +72,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize, last_offset: usize) 
             chunk.constants.items[constant].print(stderr) catch {};
             print("\n", .{});
 
-            const fun = @as(*ObjFunction, @ptrCast(chunk.constants.items[constant].asObj().?));
+            const fun = @as(*ObjFunction, @ptrCast(chunk.constants.items[constant].asObj()));
             for (0..fun.upvalue_count) |_| {
                 const is_local = chunk.code.items[os] == 1;
                 os += 1;

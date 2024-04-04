@@ -38,7 +38,7 @@ var start: std.time.Instant = undefined;
 fn clock(_: []Value) !Value {
     const now = try std.time.Instant.now();
 
-    return Value.number(@as(f64, @floatFromInt(now.since(start))) / 1e9 );
+    return Value.number(@as(f64, @floatFromInt(now.since(start))) / 1e9);
 }
 
 frames: [FRAMES_MAX]CallFrame,
@@ -162,6 +162,7 @@ pub fn interpret(source: []const u8) !void {
     try call(closure, 0);
 
     run() catch {};
+    resetStack();
 }
 
 pub inline fn push(val: Value) void {
@@ -174,16 +175,14 @@ pub inline fn pop() Value {
     return vm.sp[0];
 }
 
-inline fn binaryOp(comptime op: Op) !void {
-
-    const rval = pop();//.asNumber() orelse return runtimeError("Operands must be {s}two numbers.", .{comptime if (op == .ADD) "two strings or " else ""});
+fn binaryOp(comptime op: Op) !void {
+    const rval = pop(); //.asNumber() orelse return runtimeError("Operands must be {s}two numbers.", .{comptime if (op == .ADD) "two strings or " else ""});
     if (!rval.isNumber()) return runtimeError("Operands must be {s}two numbers.", .{comptime if (op == .ADD) "two strings or " else ""});
-    const lval = pop();//.asNumber() orelse 
+    const lval = pop(); //.asNumber() orelse
     if (!lval.isNumber()) return runtimeError("Operands must be {s}two numbers.", .{comptime if (op == .ADD) "two strings or " else ""});
     const r = rval.asNumber();
     const l = lval.asNumber();
-    
-    
+
     // switch (pop()) {
     // const r = switch(pop()) {
     //     .number => |n| n,
@@ -279,7 +278,7 @@ fn invokeFromClass(class: *ObjClass, name: *ObjString, arg_count: u8) !void {
 }
 
 fn invoke(name: *ObjString, arg_count: u8) !void {
-    const receiver = peek(arg_count);//.asObj() orelse return runtimeError("Only instances have methods.", .{});
+    const receiver = peek(arg_count); //.asObj() orelse return runtimeError("Only instances have methods.", .{});
     if (!receiver.isObj() or receiver.asObj().type != .INSTANCE) {
         return runtimeError("Only instances have methods.", .{});
     }
@@ -406,7 +405,7 @@ pub fn run() !void {
                 frame.closure.upvalues.items[slot].?.open.* = peek(0);
             },
             .GET_PROPERTY => {
-                const maybe_instance = peek(0);//.asObj() orelse return runtimeError("Only instances have properties.", .{});
+                const maybe_instance = peek(0); //.asObj() orelse return runtimeError("Only instances have properties.", .{});
                 if (!maybe_instance.isObj() or maybe_instance.asObj().type != .INSTANCE) {
                     return runtimeError("Only instances have properties.", .{});
                 }
@@ -423,7 +422,7 @@ pub fn run() !void {
                 }
             },
             .SET_PROPERTY => {
-                const maybe_instance = peek(1);//.asObj() orelse return runtimeError("Only instances have properties.", .{});
+                const maybe_instance = peek(1); //.asObj() orelse return runtimeError("Only instances have properties.", .{});
                 if (!maybe_instance.isObj() or maybe_instance.asObj().type != .INSTANCE) {
                     return runtimeError("Only instances have properties.", .{});
                 }
@@ -475,11 +474,11 @@ pub fn run() !void {
                                 if (l.objType().? == .STRING) try concatenate();
                                 //continue;
                             },
-                            else => return runtimeError("Operands must be two strings or two numbers.", .{}),//return InterpretError.RuntimeError,
+                            else => return runtimeError("Operands must be two strings or two numbers.", .{}), //return InterpretError.RuntimeError,
                         }
                         //if (o.type == peek(1).objType()) {}
                     },
-                    else => return runtimeError("Operands must be two strings or two numbers.", .{}),//,
+                    else => return runtimeError("Operands must be two strings or two numbers.", .{}), //,
                 } else return runtimeError("Operands must be two strings or two numbers.", .{});
                 //return InterpretError.RuntimeError;
                 //
@@ -489,8 +488,7 @@ pub fn run() !void {
             .DIVIDE => try binaryOp(.DIVIDE),
             .NOT => push(Value.fromBool(pop().isFalsey())),
             .NEGATE => {
-                
-                const n = pop();//.asNumber() orelse 
+                const n = pop(); //.asNumber() orelse
                 if (!n.isNumber()) return runtimeError("Can only negate numbers.", .{});
                 push(Value.number(-n.asNumber()));
             },
@@ -568,7 +566,7 @@ pub fn run() !void {
                 push(Value.obj(&name.obj));
             },
             .INHERIT => {
-                const superclass = peek(1);//.asObj() orelse return runtimeError("Superclass must be a class.", .{});
+                const superclass = peek(1); //.asObj() orelse return runtimeError("Superclass must be a class.", .{});
                 if (!superclass.isObj() or superclass.asObj().type != .CLASS) {
                     return runtimeError("Superclass must be a class.", .{});
                 }

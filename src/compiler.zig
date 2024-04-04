@@ -67,7 +67,7 @@ const Compiler = struct {
         compiler.local_count = 0;
         compiler.scope_depth = 0;
 
-        var fun = try ObjFunction.new();
+        const fun = try ObjFunction.new();
         compiler.function = fun;
         current = compiler;
         if (ty != FunctionType.script) {

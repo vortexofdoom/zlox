@@ -34,7 +34,7 @@ const UnionValue = union(ValueType) {
         };
     }
 
-    pub inline fn valType(self: UnionValue) ValueType {
+    pub fn valType(self: UnionValue) ValueType {
         return switch (self) {
             .bool => .bool,
             .nil => .nil,
@@ -43,31 +43,31 @@ const UnionValue = union(ValueType) {
         };
     }
 
-    pub inline fn number(n: f64) UnionValue {
+    pub fn number(n: f64) UnionValue {
         return UnionValue{ .number = n };
     }
 
-    pub inline fn fromBool(b: bool) UnionValue {
+    pub fn fromBool(b: bool) UnionValue {
         return UnionValue{ .bool = b };
     }
 
-    pub inline fn obj(o: *Obj) UnionValue {
+    pub fn obj(o: *Obj) UnionValue {
         return UnionValue{ .obj = o };
     }
 
-    pub inline fn isBool(self: UnionValue) bool {
+    pub fn isBool(self: UnionValue) bool {
         return self == .bool;
     }
 
-    pub inline fn isNumber(self: UnionValue) bool {
+    pub fn isNumber(self: UnionValue) bool {
         return self == .number;
     }
 
-    pub inline fn isObj(self: UnionValue) bool {
+    pub fn isObj(self: UnionValue) bool {
         return self == .obj;
     }
 
-    pub inline fn asBool(self: UnionValue) bool {
+    pub fn asBool(self: UnionValue) bool {
         return self.bool;
         // return switch (self) {
         //     .bool => |b| b,
@@ -153,39 +153,39 @@ const NaNValue = packed struct {
         // return o.type;
     }
 
-    pub inline fn number(n: f64) NaNValue {
+    pub fn number(n: f64) NaNValue {
         return NaNValue{ .data = @bitCast(n) };
     }
 
-    pub inline fn fromBool(b: bool) NaNValue {
+    pub fn fromBool(b: bool) NaNValue {
         return NaNValue{ .data = FALSE.data | @intFromBool(b) };
     }
 
-    pub inline fn isBool(self: NaNValue) bool {
+    pub fn isBool(self: NaNValue) bool {
         return (self.data | 1) == TRUE.data;
     }
 
-    pub inline fn isNumber(self: NaNValue) bool {
+    pub fn isNumber(self: NaNValue) bool {
         return (self.data & QNAN) != QNAN;
     }
 
-    pub inline fn isObj(self: NaNValue) bool {
+    pub fn isObj(self: NaNValue) bool {
         return (self.data & TAG_OBJ) == TAG_OBJ;
     }
 
-    pub inline fn asBool(self: NaNValue) bool {
+    pub fn asBool(self: NaNValue) bool {
         return (self.data & 1) == 1;//if ((self.data | 1) == TRUE.data) (self.data & 1) == 1 else null;
     }
 
-    pub inline fn asNumber(self: NaNValue) f64 {
+    pub fn asNumber(self: NaNValue) f64 {
         return @bitCast(self.data);// if ((self.data & QNAN) != QNAN) @bitCast(self.data) else null;
     }
 
-    pub inline fn asObj(self: NaNValue) *Obj {
+    pub fn asObj(self: NaNValue) *Obj {
         return @ptrFromInt(self.data & ~TAG_OBJ);// if ((TAG_OBJ & self.data) == TAG_OBJ) return @ptrFromInt(self.data & ~TAG_OBJ) else null;
     }
 
-    pub inline fn obj(o: *Obj) NaNValue {
+    pub fn obj(o: *Obj) NaNValue {
         return NaNValue{ .data = @intFromPtr(o) | TAG_OBJ };
     }
 
@@ -201,12 +201,3 @@ const NaNValue = packed struct {
         }
     }
 };
-
-// pub fn val.print(val: Value, comptime writer: anytype) !void {
-//     switch (val.valType()) {
-//         .number => |n| try writer.print("{d}", .{n}),
-//         .nil => try writer.print("nil", .{}),
-//         .bool => |b| try writer.print("{any}", .{b}),
-//         .obj => |o| try object.printObject(o, writer),
-//     }
-// }

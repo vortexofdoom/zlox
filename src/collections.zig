@@ -82,7 +82,7 @@ pub const HashMap = extern struct {
         self.count = 0;
         self.capacity = 0;
         // should never fail?
-        var slice = try allocator.alloc(?Entry, 0);
+        const slice = try allocator.alloc(?Entry, 0);
         self.ptr = slice.ptr;
     }
 
@@ -118,7 +118,7 @@ pub const HashMap = extern struct {
             try self.adjustCapacity(growCapacity(@truncate(self.capacity)));
         }
 
-        var entry = findEntry(self.entries(), key);
+        const entry = findEntry(self.entries(), key);
         const is_new_key = entry.* == null;
         if (is_new_key) self.count += 1;
 
@@ -131,7 +131,7 @@ pub const HashMap = extern struct {
     }
 
     pub fn delete(self: *HashMap, key: *ObjString) bool {
-        var entry = findEntry(self.entries(), key);
+        const entry = findEntry(self.entries(), key);
         if (entry.* != null) {
             entry.*.?.key = null;
             entry.*.?.val = Value.TRUE;
@@ -158,7 +158,7 @@ pub const HashMap = extern struct {
     }
 
     pub fn adjustCapacity(self: *HashMap, capacity: usize) !void {
-        var new_entries: []?Entry = try allocator.alloc(?Entry, capacity);
+        const new_entries: []?Entry = try allocator.alloc(?Entry, capacity);
         for (new_entries) |*entry| {
             entry.* = null;
         }

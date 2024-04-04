@@ -66,7 +66,7 @@ pub const GcAllocator = struct {
         self.internal_allocator.rawFree(buf, buf_align, ret_addr);
     }
 
-    fn collect(self: *Self) void {
+    pub fn collect(self: *Self) void {
         if (comptime DEBUG_LOG_GC) {
             std.debug.print("-- gc begin\n", .{});
         }
@@ -152,7 +152,7 @@ pub const GcAllocator = struct {
 
         switch (obj.type) {
             .BOUND_METHOD => {
-                const bound = @fieldParentPtr(object.ObjBoundMethod, "obj", obj);
+                const bound: *object.ObjBoundMethod = @fieldParentPtr("obj", obj);
                 self.markValue(bound.receiver);
                 self.markObject(&bound.method.obj);
             },
@@ -197,15 +197,15 @@ pub const GcAllocator = struct {
                     std.debug.print("\n", .{});
                 }
                 o.is_marked = true;
-                self.gray_stack.append(o) catch {
-                    std.os.exit(1);
-                };
-                // switch (o.type) {
-                //     .NATIVE, .STRING => {},
-                //     else => self.gray_stack.append(o) catch {
-                //         std.os.exit(1);
-                //     },
-                // }
+                // self.gray_stack.append(o) catch {
+                //     std.os.exit(1);
+                // };
+                switch (o.type) {
+                    .NATIVE, .STRING => {},
+                    else => self.gray_stack.append(o) catch {
+                        std.process.exit(1);
+                    },
+                }
             }
         }
     }
