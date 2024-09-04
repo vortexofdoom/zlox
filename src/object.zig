@@ -251,7 +251,7 @@ fn hashString(key: []const u8) u32 {
     return hash;
 }
 
-pub fn printObject(obj: *Obj, comptime writer: anytype) !void {
+pub fn printObject(obj: *Obj, writer: anytype) !void {
     switch (obj.type) {
         .BOUND_METHOD => try printObject(&@as(*ObjBoundMethod, @fieldParentPtr("obj", obj)).method.function.obj, writer),
         .CLASS => {

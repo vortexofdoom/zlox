@@ -197,9 +197,6 @@ pub const GcAllocator = struct {
                     std.debug.print("\n", .{});
                 }
                 o.is_marked = true;
-                // self.gray_stack.append(o) catch {
-                //     std.os.exit(1);
-                // };
                 switch (o.type) {
                     .NATIVE, .STRING => {},
                     else => self.gray_stack.append(o) catch {

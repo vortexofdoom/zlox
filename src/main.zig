@@ -7,24 +7,6 @@ const memory = @import("memory.zig");
 const object = @import("object.zig");
 const InterpretError = Vm.InterpretError;
 
-const stdin = std.io.getStdIn().reader();
-const stdout = std.io.getStdOut().writer();
-
-fn repl() !void {
-
-    var line: [1024]u8 = undefined;
-
-    while (true) {
-        try stdout.print("> ", .{});
-        if (try stdin.readUntilDelimiterOrEof(&line, '\n')) |input| {
-            if (input.len == 0) break;
-            //try stdout.print("{s}\n", .{line[0..input.len]});
-            line[input.len] = 0;
-            try Vm.interpret(input);
-        }
-    }
-}
-
 fn readFile(path: []const u8, alloc: std.mem.Allocator) ![:0]u8 {
     var file = std.fs.cwd().openFile(path, .{}) catch {
         std.log.err("Could not open file \"{s}\".\n", .{path});
@@ -64,16 +46,28 @@ pub fn main() !void {
     _ = try Vm.init(gc.allocator());
     defer Vm.deinit();
 
-    var args = std.process.args();
+    var args = try std.process.argsWithAllocator(alloc);
     _ = args.skip();
-    
-    if (args.next()) |path| { 
+
+    if (args.next()) |path| {
         try runFile(path, gc_alloc);
         while (args.next()) |p| {
             try runFile(p, gc_alloc);
             gc.collect();
         }
     } else {
-        try repl();
+        const stdin = std.io.getStdIn().reader();
+        const stdout = std.io.getStdOut().writer();
+        var line: [1024]u8 = undefined;
+
+        while (true) {
+            try stdout.print("> ", .{});
+            if (try stdin.readUntilDelimiterOrEof(&line, '\n')) |input| {
+                if (input.len == 0) break;
+                //try stdout.print("{s}\n", .{line[0..input.len]});
+                line[input.len] = 0;
+                try Vm.interpret(input);
+            }
+        }
     }
 }

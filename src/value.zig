@@ -103,7 +103,7 @@ const UnionValue = union(ValueType) {
         return std.meta.eql(lhs, rhs);
     }
 
-    pub fn print(val: UnionValue, comptime writer: anytype) !void {
+    pub fn print(val: UnionValue, writer: anytype) !void {
         switch (val) {
             .number => |n| try writer.print("{d}", .{n}),
             .nil => try writer.print("nil", .{}),
@@ -116,7 +116,7 @@ const UnionValue = union(ValueType) {
 const NaNValue = packed struct {
     data: u64,
 
-    const SIGN_BIT: u64 = 0b10000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000;
+    const SIGN_BIT: u64 = 0x8000000000000000;
     const QNAN: u64 = 0x7ffc000000000000;
     const TAG_OBJ = SIGN_BIT | QNAN;
     const TAG_NIL = 0b01;
@@ -129,12 +129,8 @@ const NaNValue = packed struct {
     pub const FALSE = NaNValue{ .data = QNAN | TAG_FALSE };
 
     pub fn isFalsey(self: NaNValue) bool {
-        return if (self.data == NIL.data) true else if (self.isBool()) !self.asBool() else false;
-        // if (self == NIL) {
-        //     return false;
-        // } else if (self.asBool()) |b| {
-        //     return b;
-        // } else return true;
+        // consider expanding to include empty strings
+        return (self.data == NIL.data) or (self.isBool() and !self.asBool());
     }
 
     pub fn valType(self: NaNValue) ValueType {
@@ -147,10 +143,7 @@ const NaNValue = packed struct {
     }
 
     pub fn objType(self: NaNValue) ?ObjType {
-        if (self.isObj()) return self.asObj().type;
-        return null;
-        // const o = self.asObj() orelse return null;
-        // return o.type;
+        return if (self.isObj()) self.asObj().type else null;
     }
 
     pub fn number(n: f64) NaNValue {
@@ -189,7 +182,7 @@ const NaNValue = packed struct {
         return NaNValue{ .data = @intFromPtr(o) | TAG_OBJ };
     }
 
-    pub fn print(val: NaNValue, comptime writer: anytype) !void {
+    pub fn print(val: NaNValue, writer: anytype) !void {
         if (val.isNumber()) {
             try writer.print("{d}", .{val.asNumber()});
         } else if (val.isBool()) {

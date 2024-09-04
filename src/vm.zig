@@ -21,7 +21,6 @@ const ObjNative = object.ObjNative;
 const ObjString = object.ObjString;
 const ObjUpvalue = object.ObjUpvalue;
 const copyString = object.copyString;
-const stdout = std.io.getStdOut().writer();
 
 const DEBUG_TRACE_EXECUTION: bool = false;
 
@@ -58,7 +57,7 @@ init_string: ?*ObjString,
 
 const Self = @This();
 pub var vm: Self = .{
-    .frames = [1]CallFrame{undefined} ** FRAMES_MAX,
+    .frames = [_]CallFrame{undefined} ** FRAMES_MAX,
     .allocator = undefined,
     .stack = [_]Value{Value.NIL} ** STACK_MAX,
     .sp = undefined,
@@ -343,6 +342,7 @@ fn defineMethod(name: *ObjString) !void {
 }
 
 pub fn run() !void {
+    const stdout = std.io.getStdOut().writer();
     var frame = &vm.frames[vm.frame_count - 1];
     var offset: usize = 0;
     while (true) {
