@@ -58,7 +58,7 @@ pub const Token = struct {
     line: usize,
 };
 
-pub var scanner: @This() = .{
+var scanner: @This() = .{
     .start = undefined,
     .current = undefined,
     .line = 1,
